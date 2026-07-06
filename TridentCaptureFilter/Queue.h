@@ -22,6 +22,9 @@ EVT_WDF_REQUEST_COMPLETION_ROUTINE TridentHidInfoCompletion;
 extern "C"
 EVT_WDF_REQUEST_COMPLETION_ROUTINE TridentDeviceControlCompletion;
 
+extern "C"
+EVT_WDF_REQUEST_COMPLETION_ROUTINE TridentReadCompletion;
+
 #define IOCTL_TRIDENT_GET_STATS \
     CTL_CODE(FILE_DEVICE_UNKNOWN, 0x801, METHOD_BUFFERED, FILE_READ_DATA)
 #define TRIDENT_OBS_IOCTL_HID_GET_DEVICE_ATTRIBUTES 0x000B01A8
@@ -61,4 +64,8 @@ typedef struct _TRIDENT_STATS
     LONG LastCompletedDeviceIoctlCode;
     LONG LastCompletedDeviceIoctlStatus;
     LONG LastCompletedDeviceIoctlInformation;
+
+    LONG ReadCompleted;
+    LONG LastReadStatus;
+    LONG LastReadInformation;
 } TRIDENT_STATS, * PTRIDENT_STATS;

@@ -18,6 +18,101 @@ static void PrintLastError(const wchar_t* where)
     std::wcout << L"  " << where << L" failed. GetLastError=" << err << L"\n";
 }
 
+static void TryReadInputReportWithTimeout(
+    const wchar_t* devicePath,
+    DWORD reportLength
+)
+{
+    if (reportLength == 0)
+    {
+        std::wcout << L"ReadFile: SKIPPED - no input report\n";
+        return;
+    }
+
+    HANDLE h = CreateFileW(
+        devicePath,
+        GENERIC_READ,
+        FILE_SHARE_READ | FILE_SHARE_WRITE,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED,
+        nullptr
+    );
+
+    if (h == INVALID_HANDLE_VALUE)
+    {
+        PrintLastError(L"CreateFile(Read)");
+        return;
+    }
+
+    std::vector<BYTE> buffer(reportLength);
+    DWORD bytesRead = 0;
+
+    OVERLAPPED ov = {};
+    ov.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+
+    if (!ov.hEvent)
+    {
+        PrintLastError(L"CreateEvent");
+        CloseHandle(h);
+        return;
+    }
+
+    BOOL ok = ReadFile(
+        h,
+        buffer.data(),
+        reportLength,
+        nullptr,
+        &ov
+    );
+
+    if (!ok)
+    {
+        DWORD err = GetLastError();
+
+        if (err == ERROR_IO_PENDING)
+        {
+            DWORD wait = WaitForSingleObject(ov.hEvent, 3000);
+
+            if (wait == WAIT_OBJECT_0)
+            {
+                ok = GetOverlappedResult(h, &ov, &bytesRead, FALSE);
+
+                std::wcout << L"ReadFile: "
+                    << (ok ? L"SUCCESS" : L"FAILED") << L"\n";
+                std::wcout << L"ReadFile LastError: "
+                    << GetLastError() << L"\n";
+                std::wcout << L"BytesRead: "
+                    << bytesRead << L"\n";
+            }
+            else if (wait == WAIT_TIMEOUT)
+            {
+                CancelIoEx(h, &ov);
+                std::wcout << L"ReadFile: TIMEOUT\n";
+            }
+            else
+            {
+                CancelIoEx(h, &ov);
+                std::wcout << L"WaitForSingleObject failed. Result="
+                    << wait << L"\n";
+            }
+        }
+        else
+        {
+            std::wcout << L"ReadFile: FAILED\n";
+            std::wcout << L"ReadFile LastError: " << err << L"\n";
+        }
+    }
+    else
+    {
+        std::wcout << L"ReadFile: SUCCESS\n";
+        std::wcout << L"BytesRead: " << bytesRead << L"\n";
+    }
+
+    CloseHandle(ov.hEvent);
+    CloseHandle(h);
+}
+
 static void PrintValueCaps(
     PHIDP_PREPARSED_DATA preparsed,
     HIDP_REPORT_TYPE reportType,
@@ -163,93 +258,6 @@ static void PrintButtonCaps(
     }
 }
 
-static void TryReadInputReportWithTimeout(
-    HANDLE h,
-    USHORT inputReportByteLength,
-    DWORD timeoutMs)
-{
-    if (inputReportByteLength == 0)
-    {
-        std::wcout << L"ReadFile: SKIPPED - no input report\n";
-        return;
-    }
-
-    std::vector<BYTE> buffer(inputReportByteLength);
-    DWORD bytesRead = 0;
-
-    OVERLAPPED ov = {};
-    ov.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-
-    if (!ov.hEvent)
-    {
-        PrintLastError(L"CreateEventW");
-        return;
-    }
-
-    BOOL ok = ReadFile(
-        h,
-        buffer.data(),
-        static_cast<DWORD>(buffer.size()),
-        nullptr,
-        &ov
-    );
-
-    if (!ok)
-    {
-        DWORD err = GetLastError();
-
-        if (err != ERROR_IO_PENDING)
-        {
-            std::wcout << L"ReadFile: FAILED\n";
-            std::wcout << L"ReadFile LastError: " << err << L"\n";
-            CloseHandle(ov.hEvent);
-            return;
-        }
-    }
-
-    DWORD wait = WaitForSingleObject(ov.hEvent, timeoutMs);
-
-    if (wait == WAIT_OBJECT_0)
-    {
-        if (GetOverlappedResult(h, &ov, &bytesRead, FALSE))
-        {
-            std::wcout << L"ReadFile: SUCCESS\n";
-            std::wcout << L"Read BytesReturned: " << bytesRead << L"\n";
-
-            std::wcout << L"Read Data:";
-            for (DWORD i = 0; i < bytesRead; ++i)
-            {
-                if (i % 16 == 0)
-                    std::wcout << L"\n  ";
-
-                std::wcout << std::hex
-                    << std::setw(2)
-                    << std::setfill(L'0')
-                    << static_cast<int>(buffer[i])
-                    << L" ";
-            }
-            std::wcout << std::dec << L"\n";
-        }
-        else
-        {
-            PrintLastError(L"GetOverlappedResult");
-        }
-    }
-    else if (wait == WAIT_TIMEOUT)
-    {
-        std::wcout << L"ReadFile: TIMEOUT\n";
-        CancelIoEx(h, &ov);
-        GetOverlappedResult(h, &ov, &bytesRead, TRUE);
-    }
-    else
-    {
-        std::wcout << L"WaitForSingleObject failed. Result=" << wait << L"\n";
-        CancelIoEx(h, &ov);
-    }
-
-    CloseHandle(ov.hEvent);
-}
-
 static bool IsTargetTouchScreenReadPath(const wchar_t* devicePath)
 {
     std::wstring path = devicePath;
@@ -363,30 +371,20 @@ static void AnalyzeHidDevice(const wchar_t* devicePath)
 
         if (caps.InputReportByteLength > 0)
         {
-            std::vector<BYTE> buffer(caps.InputReportByteLength);
-            DWORD bytesRead = 0;
-
-            /*BOOL ok = ReadFile(
-                h,
-                buffer.data(),
-                static_cast<DWORD>(buffer.size()),
-                &bytesRead,
-                nullptr
-            );*/
-
-            if (caps.InputReportByteLength > 0)
+            if (IsTargetTouchScreenReadPath(devicePath))
             {
-                if (IsTargetTouchScreenReadPath(devicePath))
-                {
-                    std::wcout << L"ReadTarget: YES\n";
-                    TryReadInputReportWithTimeout(h, caps.InputReportByteLength, 3000);
-                }
-                else
-                {
-                    std::wcout << L"ReadTarget: NO\n";
-                    std::wcout << L"ReadFile: SKIPPED\n";
-                }
+                std::wcout << L"ReadTarget: YES\n";
+                TryReadInputReportWithTimeout(devicePath, caps.InputReportByteLength);
             }
+            else
+            {
+                std::wcout << L"ReadTarget: NO\n";
+                std::wcout << L"ReadFile: SKIPPED\n";
+            }
+        }
+        else
+        {
+            std::wcout << L"ReadFile: SKIPPED - no input report\n";
         }
     }
 

@@ -51,6 +51,10 @@ typedef struct _TRIDENT_STATS
     LONG LastCompletedDeviceIoctlCode;
     LONG LastCompletedDeviceIoctlStatus;
     LONG LastCompletedDeviceIoctlInformation;
+
+    LONG ReadCompleted;
+    LONG LastReadStatus;
+    LONG LastReadInformation;
 } TRIDENT_STATS, * PTRIDENT_STATS;
 
 static BOOL ReadStatsFromDevice(const wchar_t* devicePath)
@@ -131,6 +135,10 @@ static BOOL ReadStatsFromDevice(const wchar_t* devicePath)
     wprintf(L"LastCompletedDeviceIoctlCode:        0x%08X\n", stats.LastCompletedDeviceIoctlCode);
     wprintf(L"LastCompletedDeviceIoctlStatus:      0x%08X\n", stats.LastCompletedDeviceIoctlStatus);
     wprintf(L"LastCompletedDeviceIoctlInformation: %ld\n", stats.LastCompletedDeviceIoctlInformation);
+
+    wprintf(L"ReadCompleted:                    %ld\n", stats.ReadCompleted);
+    wprintf(L"LastReadStatus:                   0x%08X\n", stats.LastReadStatus);
+    wprintf(L"LastReadInformation:              %ld\n", stats.LastReadInformation);
 
     CloseHandle(device);
     return TRUE;

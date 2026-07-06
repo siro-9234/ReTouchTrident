@@ -8,7 +8,7 @@ Class       = HIDClass
 ClassGuid   = {745A17A0-74D3-11D0-B6FE-00A0C90F57DA}
 Provider    = %ManufacturerName%
 CatalogFile = TridentCaptureFilter.cat
-DriverVer   = 07/06/2026,0.3.0.0
+DriverVer   = 07/06/2025,0.3.0.0
 PnpLockdown = 1
 
 [DestinationDirs]

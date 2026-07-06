@@ -30,6 +30,10 @@ static volatile LONG g_LastCompletedDeviceIoctlCode = 0;
 static volatile LONG g_LastCompletedDeviceIoctlStatus = 0;
 static volatile LONG g_LastCompletedDeviceIoctlInformation = 0;
 
+static volatile LONG g_ReadCompleted = 0;
+static volatile LONG g_LastReadStatus = 0;
+static volatile LONG g_LastReadInformation = 0;
+
 static
 VOID
 TridentRecordNonStatsDeviceIoctl(
@@ -355,6 +359,15 @@ TridentEvtIoDeviceControl(
         stats->LastCompletedDeviceIoctlInformation =
             InterlockedCompareExchange(&g_LastCompletedDeviceIoctlInformation, 0, 0);
 
+        stats->ReadCompleted =
+            InterlockedCompareExchange(&g_ReadCompleted, 0, 0);
+
+        stats->LastReadStatus =
+            InterlockedCompareExchange(&g_LastReadStatus, 0, 0);
+
+        stats->LastReadInformation =
+            InterlockedCompareExchange(&g_LastReadInformation, 0, 0);
+
         WdfRequestCompleteWithInformation(
             Request,
             STATUS_SUCCESS,
@@ -409,6 +422,37 @@ TridentEvtIoDeviceControl(
 
 extern "C"
 VOID
+TridentReadCompletion(
+    _In_ WDFREQUEST Request,
+    _In_ WDFIOTARGET Target,
+    _In_ PWDF_REQUEST_COMPLETION_PARAMS Params,
+    _In_ WDFCONTEXT Context
+)
+{
+    UNREFERENCED_PARAMETER(Target);
+    UNREFERENCED_PARAMETER(Context);
+
+    InterlockedIncrement(&g_ReadCompleted);
+
+    InterlockedExchange(
+        &g_LastReadStatus,
+        Params->IoStatus.Status
+    );
+
+    InterlockedExchange(
+        &g_LastReadInformation,
+        static_cast<LONG>(Params->IoStatus.Information)
+    );
+
+    WdfRequestCompleteWithInformation(
+        Request,
+        Params->IoStatus.Status,
+        Params->IoStatus.Information
+    );
+}
+
+extern "C"
+VOID
 TridentEvtIoRead(
     _In_ WDFQUEUE Queue,
     _In_ WDFREQUEST Request,
@@ -423,6 +467,12 @@ TridentEvtIoRead(
     WDFIOTARGET target = WdfDeviceGetIoTarget(device);
 
     WdfRequestFormatRequestUsingCurrentType(Request);
+
+    WdfRequestSetCompletionRoutine(
+        Request,
+        TridentReadCompletion,
+        nullptr
+    );
 
     if (!WdfRequestSend(Request, target, WDF_NO_SEND_OPTIONS))
     {

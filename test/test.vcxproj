@@ -143,7 +143,7 @@
     </Manifest>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="TrodemtStats.cpp" />
+    <ClCompile Include="TridemtStats.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="resource.h" />
