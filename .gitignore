@@ -1,16 +1,23 @@
+# Visual Studio
 .vs/
+[Bb]in/
+[Oo]bj/
 x64/
 Debug/
 Release/
+
+# Driver build outputs
+*.sys
+*.cat
+*.cer
+*.pdb
+*.ilk
+*.obj
+*.tlog
+*.lastbuildstate
+
+# User settings
 *.user
 *.suo
 *.VC.db
 *.VC.opendb
-*.log
-*.tlog
-*.obj
-*.pdb
-*.ilk
-*.sys
-*.cat
-*.cer
