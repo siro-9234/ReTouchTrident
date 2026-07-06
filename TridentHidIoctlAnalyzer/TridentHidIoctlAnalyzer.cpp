@@ -48,30 +48,49 @@ static void PrintValueCaps(
     {
         const auto& c = caps[i];
 
-        std::wcout << L"  [" << i << L"] "
-            << L"UsagePage=0x" << std::hex << c.UsagePage
-            << L" ReportID=0x" << static_cast<int>(c.ReportID)
-            << std::dec
-            << L" BitSize=" << c.BitSize
-            << L" ReportCount=" << c.ReportCount
-            << L" LogicalMin=" << c.LogicalMin
-            << L" LogicalMax=" << c.LogicalMax
-            << L" PhysicalMin=" << c.PhysicalMin
-            << L" PhysicalMax=" << c.PhysicalMax
-            << L"\n";
+        std::wcout << L"  [" << i << L"]\n";
+        std::wcout << L"      UsagePage:      0x" << std::hex << c.UsagePage << std::dec << L"\n";
+        std::wcout << L"      ReportID:       0x" << std::hex << static_cast<int>(c.ReportID) << std::dec << L"\n";
+        std::wcout << L"      LinkCollection: " << c.LinkCollection << L"\n";
+        std::wcout << L"      LinkUsagePage:  0x" << std::hex << c.LinkUsagePage << std::dec << L"\n";
+        std::wcout << L"      LinkUsage:      0x" << std::hex << c.LinkUsage << std::dec << L"\n";
+
+        std::wcout << L"      BitSize:        " << c.BitSize << L"\n";
+        std::wcout << L"      ReportCount:    " << c.ReportCount << L"\n";
+        std::wcout << L"      BitField:       0x" << std::hex << c.BitField << std::dec << L"\n";
+
+        std::wcout << L"      LogicalMin:     " << c.LogicalMin << L"\n";
+        std::wcout << L"      LogicalMax:     " << c.LogicalMax << L"\n";
+        std::wcout << L"      PhysicalMin:    " << c.PhysicalMin << L"\n";
+        std::wcout << L"      PhysicalMax:    " << c.PhysicalMax << L"\n";
+
+        std::wcout << L"      Units:          0x" << std::hex << c.Units << std::dec << L"\n";
+        std::wcout << L"      UnitsExp:       " << c.UnitsExp << L"\n";
+
+        std::wcout << L"      IsAlias:        " << c.IsAlias << L"\n";
+        std::wcout << L"      HasNull:        " << c.HasNull << L"\n";
+        std::wcout << L"      IsAbsolute:     " << c.IsAbsolute << L"\n";
+        std::wcout << L"      IsRange:        " << c.IsRange << L"\n";
 
         if (c.IsRange)
         {
-            std::wcout << L"      UsageRange: 0x"
+            std::wcout << L"      UsageRange:     0x"
                 << std::hex << c.Range.UsageMin
                 << L" - 0x" << c.Range.UsageMax
                 << std::dec << L"\n";
+
+            std::wcout << L"      DataIndexRange: "
+                << c.Range.DataIndexMin
+                << L" - " << c.Range.DataIndexMax << L"\n";
         }
         else
         {
-            std::wcout << L"      Usage: 0x"
+            std::wcout << L"      Usage:          0x"
                 << std::hex << c.NotRange.Usage
                 << std::dec << L"\n";
+
+            std::wcout << L"      DataIndex:      "
+                << c.NotRange.DataIndex << L"\n";
         }
     }
 }
@@ -107,25 +126,38 @@ static void PrintButtonCaps(
     {
         const auto& c = caps[i];
 
-        std::wcout << L"  [" << i << L"] "
-            << L"UsagePage=0x" << std::hex << c.UsagePage
-            << L" ReportID=0x" << static_cast<int>(c.ReportID)
-            << std::dec
-            << L" ReportCount=" << c.ReportCount
-            << L"\n";
+        std::wcout << L"  [" << i << L"]\n";
+        std::wcout << L"      UsagePage:      0x" << std::hex << c.UsagePage << std::dec << L"\n";
+        std::wcout << L"      ReportID:       0x" << std::hex << static_cast<int>(c.ReportID) << std::dec << L"\n";
+        std::wcout << L"      LinkCollection: " << c.LinkCollection << L"\n";
+        std::wcout << L"      LinkUsagePage:  0x" << std::hex << c.LinkUsagePage << std::dec << L"\n";
+        std::wcout << L"      LinkUsage:      0x" << std::hex << c.LinkUsage << std::dec << L"\n";
+
+        std::wcout << L"      ReportCount:    " << c.ReportCount << L"\n";
+        std::wcout << L"      BitField:       0x" << std::hex << c.BitField << std::dec << L"\n";
+
+        std::wcout << L"      IsAlias:        " << c.IsAlias << L"\n";
+        std::wcout << L"      IsRange:        " << c.IsRange << L"\n";
 
         if (c.IsRange)
         {
-            std::wcout << L"      UsageRange: 0x"
+            std::wcout << L"      UsageRange:     0x"
                 << std::hex << c.Range.UsageMin
                 << L" - 0x" << c.Range.UsageMax
                 << std::dec << L"\n";
+
+            std::wcout << L"      DataIndexRange: "
+                << c.Range.DataIndexMin
+                << L" - " << c.Range.DataIndexMax << L"\n";
         }
         else
         {
-            std::wcout << L"      Usage: 0x"
+            std::wcout << L"      Usage:          0x"
                 << std::hex << c.NotRange.Usage
                 << std::dec << L"\n";
+
+            std::wcout << L"      DataIndex:      "
+                << c.NotRange.DataIndex << L"\n";
         }
     }
 }
