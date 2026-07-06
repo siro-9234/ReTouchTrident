@@ -26,6 +26,10 @@ static volatile LONG g_HidGetReportDescriptorCompleted = 0;
 static volatile LONG g_HidGetReportDescriptorFailed = 0;
 static volatile LONG g_LastHidGetReportDescriptorStatus = 0;
 
+static volatile LONG g_LastCompletedDeviceIoctlCode = 0;
+static volatile LONG g_LastCompletedDeviceIoctlStatus = 0;
+static volatile LONG g_LastCompletedDeviceIoctlInformation = 0;
+
 static
 VOID
 TridentRecordNonStatsDeviceIoctl(
@@ -38,6 +42,43 @@ TridentRecordNonStatsDeviceIoctl(
     InterlockedExchange(
         &g_NonStatsDeviceIoctlCodes[slot],
         static_cast<LONG>(IoControlCode)
+    );
+}
+
+extern "C"
+VOID
+TridentDeviceControlCompletion(
+    _In_ WDFREQUEST Request,
+    _In_ WDFIOTARGET Target,
+    _In_ PWDF_REQUEST_COMPLETION_PARAMS Params,
+    _In_ WDFCONTEXT Context
+)
+{
+    UNREFERENCED_PARAMETER(Target);
+
+    ULONG ioControlCode = static_cast<ULONG>(
+        reinterpret_cast<ULONG_PTR>(Context)
+        );
+
+    InterlockedExchange(
+        &g_LastCompletedDeviceIoctlCode,
+        static_cast<LONG>(ioControlCode)
+    );
+
+    InterlockedExchange(
+        &g_LastCompletedDeviceIoctlStatus,
+        Params->IoStatus.Status
+    );
+
+    InterlockedExchange(
+        &g_LastCompletedDeviceIoctlInformation,
+        static_cast<LONG>(Params->IoStatus.Information)
+    );
+
+    WdfRequestCompleteWithInformation(
+        Request,
+        Params->IoStatus.Status,
+        Params->IoStatus.Information
     );
 }
 
@@ -61,11 +102,7 @@ TridentHidInfoCompletion(
     if (ioControlCode == TRIDENT_OBS_IOCTL_HID_GET_DEVICE_ATTRIBUTES)
     {
         InterlockedIncrement(&g_HidGetDeviceAttributesCompleted);
-
-        InterlockedExchange(
-            &g_LastHidGetDeviceAttributesStatus,
-            status
-        );
+        InterlockedExchange(&g_LastHidGetDeviceAttributesStatus, status);
 
         if (!NT_SUCCESS(status))
         {
@@ -75,11 +112,7 @@ TridentHidInfoCompletion(
     else if (ioControlCode == TRIDENT_OBS_IOCTL_HID_GET_REPORT_DESCRIPTOR)
     {
         InterlockedIncrement(&g_HidGetReportDescriptorCompleted);
-
-        InterlockedExchange(
-            &g_LastHidGetReportDescriptorStatus,
-            status
-        );
+        InterlockedExchange(&g_LastHidGetReportDescriptorStatus, status);
 
         if (!NT_SUCCESS(status))
         {
@@ -87,9 +120,10 @@ TridentHidInfoCompletion(
         }
     }
 
-    WdfRequestComplete(
+    WdfRequestCompleteWithInformation(
         Request,
-        status
+        status,
+        Params->IoStatus.Information
     );
 }
 
@@ -129,9 +163,10 @@ TridentReadReportCompletion(
         }
     }
 
-    WdfRequestComplete(
+    WdfRequestCompleteWithInformation(
         Request,
-        Params->IoStatus.Status
+        Params->IoStatus.Status,
+        Params->IoStatus.Information
     );
 }
 
@@ -311,6 +346,15 @@ TridentEvtIoDeviceControl(
         stats->LastHidGetReportDescriptorStatus =
             InterlockedCompareExchange(&g_LastHidGetReportDescriptorStatus, 0, 0);
 
+        stats->LastCompletedDeviceIoctlCode =
+            InterlockedCompareExchange(&g_LastCompletedDeviceIoctlCode, 0, 0);
+
+        stats->LastCompletedDeviceIoctlStatus =
+            InterlockedCompareExchange(&g_LastCompletedDeviceIoctlStatus, 0, 0);
+
+        stats->LastCompletedDeviceIoctlInformation =
+            InterlockedCompareExchange(&g_LastCompletedDeviceIoctlInformation, 0, 0);
+
         WdfRequestCompleteWithInformation(
             Request,
             STATUS_SUCCESS,
@@ -348,17 +392,13 @@ TridentEvtIoDeviceControl(
 
     WdfRequestFormatRequestUsingCurrentType(Request);
 
-    if (IoControlCode == TRIDENT_OBS_IOCTL_HID_GET_DEVICE_ATTRIBUTES ||
-        IoControlCode == TRIDENT_OBS_IOCTL_HID_GET_REPORT_DESCRIPTOR)
-    {
-        WdfRequestSetCompletionRoutine(
-            Request,
-            TridentHidInfoCompletion,
-            reinterpret_cast<WDFCONTEXT>(
-                static_cast<ULONG_PTR>(IoControlCode)
-                )
-        );
-    }
+    WdfRequestSetCompletionRoutine(
+        Request,
+        TridentDeviceControlCompletion,
+        reinterpret_cast<WDFCONTEXT>(
+            static_cast<ULONG_PTR>(IoControlCode)
+            )
+    );
 
     if (!WdfRequestSend(Request, target, WDF_NO_SEND_OPTIONS))
     {

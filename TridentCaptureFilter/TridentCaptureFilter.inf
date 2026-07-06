@@ -26,6 +26,7 @@ TridentCaptureFilter.sys = 1
 
 [Standard.NTamd64.10.0...18362]
 %TridentCaptureFilter.DeviceDesc% = TridentCaptureFilter_Device, HID\VID_27C0&PID_0859&MI_00&Col01
+%TridentCaptureFilter.DeviceDesc% = TridentCaptureFilter_Device, HID\VID_27C0&PID_0859&MI_01
 
 [TridentCaptureFilter_Device.NT]
 CopyFiles = TridentCaptureFilter_CopyFiles

@@ -273,7 +273,7 @@ static void AnalyzeHidDevice(const wchar_t* devicePath)
         FILE_SHARE_READ | FILE_SHARE_WRITE,
         nullptr,
         OPEN_EXISTING,
-        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED,
+        FILE_ATTRIBUTE_NORMAL,
         nullptr
     );
 
@@ -287,7 +287,7 @@ static void AnalyzeHidDevice(const wchar_t* devicePath)
             FILE_SHARE_READ | FILE_SHARE_WRITE,
             nullptr,
             OPEN_EXISTING,
-            FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED,
+            FILE_ATTRIBUTE_NORMAL,
             nullptr
         );
 

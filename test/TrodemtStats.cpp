@@ -47,6 +47,10 @@ typedef struct _TRIDENT_STATS
     LONG HidGetReportDescriptorCompleted;
     LONG HidGetReportDescriptorFailed;
     LONG LastHidGetReportDescriptorStatus;
+
+    LONG LastCompletedDeviceIoctlCode;
+    LONG LastCompletedDeviceIoctlStatus;
+    LONG LastCompletedDeviceIoctlInformation;
 } TRIDENT_STATS, * PTRIDENT_STATS;
 
 static BOOL ReadStatsFromDevice(const wchar_t* devicePath)
@@ -123,6 +127,10 @@ static BOOL ReadStatsFromDevice(const wchar_t* devicePath)
     wprintf(L"HidGetReportDescriptorCompleted:  %ld\n", stats.HidGetReportDescriptorCompleted);
     wprintf(L"HidGetReportDescriptorFailed:     %ld\n", stats.HidGetReportDescriptorFailed);
     wprintf(L"LastHidGetReportDescriptorStatus: 0x%08X\n", stats.LastHidGetReportDescriptorStatus);
+
+    wprintf(L"LastCompletedDeviceIoctlCode:        0x%08X\n", stats.LastCompletedDeviceIoctlCode);
+    wprintf(L"LastCompletedDeviceIoctlStatus:      0x%08X\n", stats.LastCompletedDeviceIoctlStatus);
+    wprintf(L"LastCompletedDeviceIoctlInformation: %ld\n", stats.LastCompletedDeviceIoctlInformation);
 
     CloseHandle(device);
     return TRUE;
@@ -210,7 +218,9 @@ int wmain()
         {
             found = TRUE;
 
-            wprintf(L"\nFound Trident interface:\n");
+            wprintf(L"\n============================================================\n");
+            wprintf(L"Trident interface #%lu\n", index);
+            wprintf(L"DevicePath:\n");
             wprintf(L"%s\n", detailData->DevicePath);
 
             ReadStatsFromDevice(detailData->DevicePath);
