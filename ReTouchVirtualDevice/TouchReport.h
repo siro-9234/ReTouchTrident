@@ -1,0 +1,43 @@
+#pragma once
+
+#include <ntddk.h>
+
+#ifndef RETOUCH_MAX_CONTACTS
+#define RETOUCH_MAX_CONTACTS 10
+#endif
+
+#define RETOUCH_REPORT_ID_TOUCH     0x01
+#define RETOUCH_REPORT_ID_MAX_COUNT 0x02
+
+#define RETOUCH_FLAG_TIP_SWITCH 0x01
+#define RETOUCH_FLAG_IN_RANGE   0x02
+#define RETOUCH_FLAG_CONFIDENCE 0x04
+
+#pragma pack(push, 1)
+
+typedef struct _RETOUCH_HID_CONTACT
+{
+    UCHAR Flags;
+    UCHAR ContactId;
+    USHORT X;
+    USHORT Y;
+
+} RETOUCH_HID_CONTACT, * PRETOUCH_HID_CONTACT;
+
+typedef struct _RETOUCH_TOUCH_REPORT
+{
+    UCHAR ReportId;
+    RETOUCH_HID_CONTACT Contacts[RETOUCH_MAX_CONTACTS];
+    UCHAR ContactCount;
+    USHORT ScanTime;
+
+} RETOUCH_TOUCH_REPORT, * PRETOUCH_TOUCH_REPORT;
+
+typedef struct _RETOUCH_MAX_COUNT_FEATURE_REPORT
+{
+    UCHAR ReportId;
+    UCHAR MaximumContactCount;
+
+} RETOUCH_MAX_COUNT_FEATURE_REPORT, * PRETOUCH_MAX_COUNT_FEATURE_REPORT;
+
+#pragma pack(pop)

@@ -1,0 +1,16 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="ARM64" />
+    <Platform Name="x64" />
+  </Configurations>
+  <Folder Name="/docs/" />
+  <Project Path="ReTouchVirtualDevice/ReTouchVirtualDevice.vcxproj">
+    <Deploy />
+  </Project>
+  <Project Path="test/test.csproj" />
+  <Project Path="TridentCaptureFilter/TridentCaptureFilter.vcxproj">
+    <Deploy />
+  </Project>
+  <Project Path="user/user.csproj" />
+</Solution>

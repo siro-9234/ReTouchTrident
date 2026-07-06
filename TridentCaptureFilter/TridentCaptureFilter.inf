@@ -1,0 +1,64 @@
+;
+; TridentCaptureFilter.inf
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = HIDClass
+ClassGuid   = {745A17A0-74D3-11D0-B6FE-00A0C90F57DA}
+Provider    = %ManufacturerName%
+CatalogFile = TridentCaptureFilter.cat
+DriverVer   = 07/06/2026,0.3.0.0
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 13
+TridentCaptureFilter_CopyFiles = 13
+
+[SourceDisksNames]
+1 = %DiskName%,,,
+
+[SourceDisksFiles]
+TridentCaptureFilter.sys = 1
+
+[Manufacturer]
+%ManufacturerName% = Standard,NTamd64.10.0...18362
+
+[Standard.NTamd64.10.0...18362]
+%TridentCaptureFilter.DeviceDesc% = TridentCaptureFilter_Device, HID\VID_27C0&PID_0859&MI_00&Col01
+
+[TridentCaptureFilter_Device.NT]
+CopyFiles = TridentCaptureFilter_CopyFiles
+
+[TridentCaptureFilter_CopyFiles]
+TridentCaptureFilter.sys
+
+[TridentCaptureFilter_Device.NT.Services]
+AddService = TridentCaptureFilter, 0x00000000, TridentCaptureFilter_Service_Inst
+AddService = ,2
+
+[TridentCaptureFilter_Service_Inst]
+DisplayName    = %TridentCaptureFilter.SVCDESC%
+ServiceType    = 1
+StartType      = 3
+ErrorControl   = 1
+LoadOrderGroup = "PNP Filter"
+ServiceBinary  = %13%\TridentCaptureFilter.sys
+
+[TridentCaptureFilter_Device.NT.Wdf]
+KmdfService = TridentCaptureFilter, TridentCaptureFilter_WdfSect
+
+[TridentCaptureFilter_WdfSect]
+KmdfLibraryVersion = 1.33
+
+[TridentCaptureFilter_Device.NT.Filters]
+AddFilter = TridentCaptureFilter,,TridentCaptureFilter_FilterInstall
+
+[TridentCaptureFilter_FilterInstall]
+FilterPosition = Upper
+
+[Strings]
+ManufacturerName = "ReTouch Trident"
+DiskName = "ReTouch Trident Installation Disk"
+TridentCaptureFilter.DeviceDesc = "ReTouch Trident Capture Filter"
+TridentCaptureFilter.SVCDESC = "ReTouch Trident Capture Filter Driver"

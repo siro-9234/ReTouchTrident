@@ -1,0 +1,52 @@
+[Version]
+Signature="$WINDOWS NT$"
+Class=System
+ClassGuid={4d36e97d-e325-11ce-bfc1-08002be10318}
+Provider=%ManufacturerName%
+CatalogFile=TouchVirtualDevice.cat
+DriverVer=07/05/2026,1.0.0.0
+PnpLockdown=1
+
+[DestinationDirs]
+DefaultDestDir = 13
+DriverCopyFiles = 13
+
+[SourceDisksNames]
+1 = %DiskName%,,,
+
+[SourceDisksFiles]
+ReTouchVirtualDevice.sys = 1
+
+[Manufacturer]
+%ManufacturerName%=Standard,NTamd64.10.0...16299
+
+[Standard.NTamd64.10.0...16299]
+%DeviceDesc%=Driver_Install,Root\TouchVirtualDevice
+
+[Driver_Install.NT]
+CopyFiles=DriverCopyFiles
+
+[DriverCopyFiles]
+ReTouchVirtualDevice.sys
+
+[Driver_Install.NT.Services]
+AddService=TouchVirtualDevice,0x00000002,Service_Install
+
+[Service_Install]
+DisplayName=%ServiceName%
+ServiceType=1
+StartType=3
+ErrorControl=1
+ServiceBinary=%13%\ReTouchVirtualDevice.sys
+
+[Driver_Install.NT.Wdf]
+KmdfService=TouchVirtualDevice,WdfSection
+
+[WdfSection]
+KmdfLibraryVersion=$KMDFVERSION$
+
+[Strings]
+ManufacturerName="Test"
+DiskName="TouchVirtualDevice Installation Disk"
+DeviceDesc="Virtual Touch Driver"
+ServiceName="Virtual Touch Driver"
