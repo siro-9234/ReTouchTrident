@@ -521,6 +521,16 @@ TridentReadCompletion(
                 &g_LastReadDataLength,
                 static_cast<LONG>(copyLength)
             );
+
+            TOUCH_POINT point = {};
+
+            if (DecodeTouchReport(
+                static_cast<PUCHAR>(buffer),
+                copyLength,
+                &point))
+            {
+                UNREFERENCED_PARAMETER(point);
+            }
         }
     }
 
