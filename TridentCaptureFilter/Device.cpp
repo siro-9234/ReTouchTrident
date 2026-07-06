@@ -49,6 +49,9 @@ TridentEvtDeviceAdd(
     queueConfig.EvtIoDeviceControl =
         TridentEvtIoDeviceControl;
 
+    queueConfig.EvtIoRead =
+        TridentEvtIoRead;
+
     WDFQUEUE queue;
 
     status = WdfIoQueueCreate(

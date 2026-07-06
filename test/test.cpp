@@ -14,15 +14,39 @@ DEFINE_GUID(
 
 #define IOCTL_TRIDENT_GET_STATS \
     CTL_CODE(FILE_DEVICE_UNKNOWN, 0x801, METHOD_BUFFERED, FILE_READ_DATA)
+#define TRIDENT_OBS_IOCTL_HID_GET_DEVICE_ATTRIBUTES 0x000B01A8
+#define TRIDENT_OBS_IOCTL_HID_GET_REPORT_DESCRIPTOR 0x000B01BE
 
 typedef struct _TRIDENT_STATS
 {
     LONG InternalIoctlCount;
+    LONG DeviceIoctlCount;
+    LONG GetStatsIoctlCount;
+    LONG ReadRequestCount;
+
+    LONG NonStatsDeviceIoctlCount;
+    LONG LastNonStatsDeviceIoctlCode;
+    LONG NonStatsDeviceIoctlCodes[8];
+
+    LONG HidGetDeviceAttributesCount;
+    LONG HidGetReportDescriptorCount;
+
+    LONG LastInternalIoctlCode;
+    LONG LastDeviceIoctlCode;
+
     LONG ReadReportReceived;
     LONG ReadReportCompleted;
     LONG ReadReportSendFailed;
     LONG ReadReportBufferRetrieved;
     LONG ReadReportBufferRetrieveFailed;
+
+    LONG HidGetDeviceAttributesCompleted;
+    LONG HidGetDeviceAttributesFailed;
+    LONG LastHidGetDeviceAttributesStatus;
+
+    LONG HidGetReportDescriptorCompleted;
+    LONG HidGetReportDescriptorFailed;
+    LONG LastHidGetReportDescriptorStatus;
 } TRIDENT_STATS, * PTRIDENT_STATS;
 
 static BOOL ReadStatsFromDevice(const wchar_t* devicePath)
@@ -72,6 +96,33 @@ static BOOL ReadStatsFromDevice(const wchar_t* devicePath)
     wprintf(L"ReadReportSendFailed:              %ld\n", stats.ReadReportSendFailed);
     wprintf(L"ReadReportBufferRetrieved:         %ld\n", stats.ReadReportBufferRetrieved);
     wprintf(L"ReadReportBufferRetrieveFailed:    %ld\n", stats.ReadReportBufferRetrieveFailed);
+    wprintf(L"DeviceIoctlCount:                  %ld\n", stats.DeviceIoctlCount);
+    wprintf(L"GetStatsIoctlCount:                %ld\n", stats.GetStatsIoctlCount);
+    wprintf(L"LastInternalIoctlCode:             0x%08X\n", stats.LastInternalIoctlCode);
+    wprintf(L"LastDeviceIoctlCode:               0x%08X\n", stats.LastDeviceIoctlCode);
+    wprintf(L"ReadRequestCount:                  %ld\n", stats.ReadRequestCount);
+    wprintf(L"NonStatsDeviceIoctlCount:          %ld\n", stats.NonStatsDeviceIoctlCount);
+    wprintf(L"LastNonStatsDeviceIoctlCode:       0x%08X\n", stats.LastNonStatsDeviceIoctlCode);
+    wprintf(L"NonStatsDeviceIoctlCodes:\n");
+
+    for (int i = 0; i < 8; i++)
+    {
+        wprintf(
+            L"  [%d] 0x%08X\n",
+            i,
+            stats.NonStatsDeviceIoctlCodes[i]
+        );
+    }
+
+    wprintf(L"HidGetDeviceAttributesCount:       %ld\n", stats.HidGetDeviceAttributesCount);
+    wprintf(L"HidGetReportDescriptorCount:       %ld\n", stats.HidGetReportDescriptorCount);
+    wprintf(L"HidGetDeviceAttributesCompleted:  %ld\n", stats.HidGetDeviceAttributesCompleted);
+    wprintf(L"HidGetDeviceAttributesFailed:     %ld\n", stats.HidGetDeviceAttributesFailed);
+    wprintf(L"LastHidGetDeviceAttributesStatus: 0x%08X\n", stats.LastHidGetDeviceAttributesStatus);
+
+    wprintf(L"HidGetReportDescriptorCompleted:  %ld\n", stats.HidGetReportDescriptorCompleted);
+    wprintf(L"HidGetReportDescriptorFailed:     %ld\n", stats.HidGetReportDescriptorFailed);
+    wprintf(L"LastHidGetReportDescriptorStatus: 0x%08X\n", stats.LastHidGetReportDescriptorStatus);
 
     CloseHandle(device);
     return TRUE;
