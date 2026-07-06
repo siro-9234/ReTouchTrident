@@ -55,6 +55,9 @@ typedef struct _TRIDENT_STATS
     LONG ReadCompleted;
     LONG LastReadStatus;
     LONG LastReadInformation;
+
+    LONG LastReadDataLength;
+    UCHAR LastReadData[64];
 } TRIDENT_STATS, * PTRIDENT_STATS;
 
 static BOOL ReadStatsFromDevice(const wchar_t* devicePath)
@@ -139,6 +142,26 @@ static BOOL ReadStatsFromDevice(const wchar_t* devicePath)
     wprintf(L"ReadCompleted:                    %ld\n", stats.ReadCompleted);
     wprintf(L"LastReadStatus:                   0x%08X\n", stats.LastReadStatus);
     wprintf(L"LastReadInformation:              %ld\n", stats.LastReadInformation);
+
+    wprintf(L"LastReadDataLength:               %ld\n", stats.LastReadDataLength);
+
+    wprintf(L"LastReadData:\n");
+    for (int i = 0; i < stats.LastReadDataLength && i < 64; i++)
+    {
+        if (i % 16 == 0)
+        {
+            wprintf(L"  ");
+        }
+
+        wprintf(L"%02X ", stats.LastReadData[i]);
+
+        if (i % 16 == 15)
+        {
+            wprintf(L"\n");
+        }
+    }
+
+    wprintf(L"\n");
 
     CloseHandle(device);
     return TRUE;

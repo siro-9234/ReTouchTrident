@@ -68,4 +68,7 @@ typedef struct _TRIDENT_STATS
     LONG ReadCompleted;
     LONG LastReadStatus;
     LONG LastReadInformation;
+
+    LONG LastReadDataLength;
+    UCHAR LastReadData[64];
 } TRIDENT_STATS, * PTRIDENT_STATS;

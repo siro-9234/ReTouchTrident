@@ -34,6 +34,9 @@ static volatile LONG g_ReadCompleted = 0;
 static volatile LONG g_LastReadStatus = 0;
 static volatile LONG g_LastReadInformation = 0;
 
+static volatile LONG g_LastReadDataLength = 0;
+static UCHAR g_LastReadData[64] = {};
+
 static
 VOID
 TridentRecordNonStatsDeviceIoctl(
@@ -368,6 +371,15 @@ TridentEvtIoDeviceControl(
         stats->LastReadInformation =
             InterlockedCompareExchange(&g_LastReadInformation, 0, 0);
 
+        stats->LastReadDataLength =
+            InterlockedCompareExchange(&g_LastReadDataLength, 0, 0);
+
+        RtlCopyMemory(
+            stats->LastReadData,
+            g_LastReadData,
+            sizeof(stats->LastReadData)
+        );
+
         WdfRequestCompleteWithInformation(
             Request,
             STATUS_SUCCESS,
@@ -443,6 +455,46 @@ TridentReadCompletion(
         &g_LastReadInformation,
         static_cast<LONG>(Params->IoStatus.Information)
     );
+
+    if (NT_SUCCESS(Params->IoStatus.Status) &&
+        Params->IoStatus.Information > 0)
+    {
+        PVOID buffer = nullptr;
+        size_t length = 0;
+
+        NTSTATUS retrieveStatus = WdfRequestRetrieveOutputBuffer(
+            Request,
+            1,
+            &buffer,
+            &length
+        );
+
+        if (NT_SUCCESS(retrieveStatus))
+        {
+            size_t copyLength = Params->IoStatus.Information;
+
+            if (copyLength > sizeof(g_LastReadData))
+            {
+                copyLength = sizeof(g_LastReadData);
+            }
+
+            if (copyLength > length)
+            {
+                copyLength = length;
+            }
+
+            RtlCopyMemory(
+                g_LastReadData,
+                buffer,
+                copyLength
+            );
+
+            InterlockedExchange(
+                &g_LastReadDataLength,
+                static_cast<LONG>(copyLength)
+            );
+        }
+    }
 
     WdfRequestCompleteWithInformation(
         Request,

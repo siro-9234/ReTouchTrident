@@ -72,7 +72,7 @@ static void TryReadInputReportWithTimeout(
 
         if (err == ERROR_IO_PENDING)
         {
-            DWORD wait = WaitForSingleObject(ov.hEvent, 3000);
+            DWORD wait = WaitForSingleObject(ov.hEvent, 10000);
 
             if (wait == WAIT_OBJECT_0)
             {
