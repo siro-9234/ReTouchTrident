@@ -58,6 +58,13 @@ typedef struct _TRIDENT_STATS
 
     LONG LastReadDataLength;
     UCHAR LastReadData[64];
+
+    LONG LastDecodedTouchX;
+    LONG LastDecodedTouchY;
+    LONG LastDecodeTouchReportSucceeded;
+    LONG LastDecodeTouchReportFailed;
+
+    LONG LastDecodedTipSwitch;
 } TRIDENT_STATS, * PTRIDENT_STATS;
 
 static BOOL ReadStatsFromDevice(const wchar_t* devicePath)
@@ -145,6 +152,11 @@ static BOOL ReadStatsFromDevice(const wchar_t* devicePath)
 
     wprintf(L"LastReadDataLength:               %ld\n", stats.LastReadDataLength);
 
+    wprintf(L"LastDecodedTouchX:                %ld\n", stats.LastDecodedTouchX);
+    wprintf(L"LastDecodedTouchY:                %ld\n", stats.LastDecodedTouchY);
+    wprintf(L"LastDecodeTouchReportSucceeded:   %ld\n", stats.LastDecodeTouchReportSucceeded);
+    wprintf(L"LastDecodeTouchReportFailed:      %ld\n", stats.LastDecodeTouchReportFailed);
+
     wprintf(L"LastReadData:\n");
     for (int i = 0; i < stats.LastReadDataLength && i < 64; i++)
     {
@@ -173,8 +185,11 @@ static BOOL ReadStatsFromDevice(const wchar_t* devicePath)
             (stats.LastReadData[5] << 8)
             );
 
+        wprintf(L"\n");
+
         wprintf(L"DecodedTouchX:                   %u\n", x);
         wprintf(L"DecodedTouchY:                   %u\n", y);
+        wprintf(L"LastDecodedTipSwitch:           %ld\n", stats.LastDecodedTipSwitch);
     }
 
     wprintf(L"\n");

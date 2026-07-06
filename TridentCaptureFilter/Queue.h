@@ -71,4 +71,11 @@ typedef struct _TRIDENT_STATS
 
     LONG LastReadDataLength;
     UCHAR LastReadData[64];
+
+    LONG LastDecodedTouchX;
+    LONG LastDecodedTouchY;
+    LONG LastDecodeTouchReportSucceeded;
+    LONG LastDecodeTouchReportFailed;
+
+    LONG LastDecodedTipSwitch;
 } TRIDENT_STATS, * PTRIDENT_STATS;

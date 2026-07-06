@@ -37,10 +37,17 @@ static volatile LONG g_LastReadInformation = 0;
 static volatile LONG g_LastReadDataLength = 0;
 static UCHAR g_LastReadData[64] = {};
 
+static volatile LONG g_LastDecodedTouchX = 0;
+static volatile LONG g_LastDecodedTouchY = 0;
+static volatile LONG g_LastDecodeTouchReportSucceeded = 0;
+static volatile LONG g_LastDecodeTouchReportFailed = 0;
+static volatile LONG g_LastDecodedTipSwitch = 0;
+
 typedef struct _TOUCH_POINT
 {
     USHORT X;
     USHORT Y;
+    BOOLEAN TipSwitch;
 } TOUCH_POINT, * PTOUCH_POINT;
 
 BOOLEAN DecodeTouchReport(
@@ -61,6 +68,8 @@ BOOLEAN DecodeTouchReport(
 
     Point->X = (USHORT)(Report[2] | (Report[3] << 8));
     Point->Y = (USHORT)(Report[4] | (Report[5] << 8));
+
+    Point->TipSwitch = (Report[1] & 0x01) ? TRUE : FALSE;
 
     return TRUE;
 }
@@ -402,6 +411,21 @@ TridentEvtIoDeviceControl(
         stats->LastReadDataLength =
             InterlockedCompareExchange(&g_LastReadDataLength, 0, 0);
 
+        stats->LastDecodedTouchX =
+            InterlockedCompareExchange(&g_LastDecodedTouchX, 0, 0);
+
+        stats->LastDecodedTouchY =
+            InterlockedCompareExchange(&g_LastDecodedTouchY, 0, 0);
+
+        stats->LastDecodeTouchReportSucceeded =
+            InterlockedCompareExchange(&g_LastDecodeTouchReportSucceeded, 0, 0);
+
+        stats->LastDecodeTouchReportFailed =
+            InterlockedCompareExchange(&g_LastDecodeTouchReportFailed, 0, 0);
+
+        stats->LastDecodedTipSwitch =
+            InterlockedCompareExchange(&g_LastDecodedTipSwitch, 0, 0);
+
         RtlCopyMemory(
             stats->LastReadData,
             g_LastReadData,
@@ -529,7 +553,14 @@ TridentReadCompletion(
                 copyLength,
                 &point))
             {
-                UNREFERENCED_PARAMETER(point);
+                InterlockedExchange(&g_LastDecodedTouchX, point.X);
+                InterlockedExchange(&g_LastDecodedTouchY, point.Y);
+                InterlockedExchange(&g_LastDecodeTouchReportSucceeded, 1);
+                InterlockedExchange(&g_LastDecodedTipSwitch, point.TipSwitch ? 1 : 0);
+            }
+            else
+            {
+                InterlockedExchange(&g_LastDecodeTouchReportFailed, 1);
             }
         }
     }
