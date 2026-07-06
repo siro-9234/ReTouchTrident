@@ -17,6 +17,119 @@ static void PrintLastError(const wchar_t* where)
     std::wcout << L"  " << where << L" failed. GetLastError=" << err << L"\n";
 }
 
+static void PrintValueCaps(
+    PHIDP_PREPARSED_DATA preparsed,
+    HIDP_REPORT_TYPE reportType,
+    USHORT count,
+    const wchar_t* title)
+{
+    std::wcout << title << L": " << count << L"\n";
+
+    if (count == 0)
+        return;
+
+    std::vector<HIDP_VALUE_CAPS> caps(count);
+    USHORT length = count;
+
+    NTSTATUS status = HidP_GetValueCaps(
+        reportType,
+        caps.data(),
+        &length,
+        preparsed
+    );
+
+    std::wcout << L"  HidP_GetValueCaps Status: 0x"
+        << std::hex << status << std::dec << L"\n";
+
+    if (status != HIDP_STATUS_SUCCESS)
+        return;
+
+    for (USHORT i = 0; i < length; ++i)
+    {
+        const auto& c = caps[i];
+
+        std::wcout << L"  [" << i << L"] "
+            << L"UsagePage=0x" << std::hex << c.UsagePage
+            << L" ReportID=0x" << static_cast<int>(c.ReportID)
+            << std::dec
+            << L" BitSize=" << c.BitSize
+            << L" ReportCount=" << c.ReportCount
+            << L" LogicalMin=" << c.LogicalMin
+            << L" LogicalMax=" << c.LogicalMax
+            << L" PhysicalMin=" << c.PhysicalMin
+            << L" PhysicalMax=" << c.PhysicalMax
+            << L"\n";
+
+        if (c.IsRange)
+        {
+            std::wcout << L"      UsageRange: 0x"
+                << std::hex << c.Range.UsageMin
+                << L" - 0x" << c.Range.UsageMax
+                << std::dec << L"\n";
+        }
+        else
+        {
+            std::wcout << L"      Usage: 0x"
+                << std::hex << c.NotRange.Usage
+                << std::dec << L"\n";
+        }
+    }
+}
+
+static void PrintButtonCaps(
+    PHIDP_PREPARSED_DATA preparsed,
+    HIDP_REPORT_TYPE reportType,
+    USHORT count,
+    const wchar_t* title)
+{
+    std::wcout << title << L": " << count << L"\n";
+
+    if (count == 0)
+        return;
+
+    std::vector<HIDP_BUTTON_CAPS> caps(count);
+    USHORT length = count;
+
+    NTSTATUS status = HidP_GetButtonCaps(
+        reportType,
+        caps.data(),
+        &length,
+        preparsed
+    );
+
+    std::wcout << L"  HidP_GetButtonCaps Status: 0x"
+        << std::hex << status << std::dec << L"\n";
+
+    if (status != HIDP_STATUS_SUCCESS)
+        return;
+
+    for (USHORT i = 0; i < length; ++i)
+    {
+        const auto& c = caps[i];
+
+        std::wcout << L"  [" << i << L"] "
+            << L"UsagePage=0x" << std::hex << c.UsagePage
+            << L" ReportID=0x" << static_cast<int>(c.ReportID)
+            << std::dec
+            << L" ReportCount=" << c.ReportCount
+            << L"\n";
+
+        if (c.IsRange)
+        {
+            std::wcout << L"      UsageRange: 0x"
+                << std::hex << c.Range.UsageMin
+                << L" - 0x" << c.Range.UsageMax
+                << std::dec << L"\n";
+        }
+        else
+        {
+            std::wcout << L"      Usage: 0x"
+                << std::hex << c.NotRange.Usage
+                << std::dec << L"\n";
+        }
+    }
+}
+
 static void AnalyzeHidDevice(const wchar_t* devicePath)
 {
     std::wcout << L"\n============================================================\n";
@@ -55,6 +168,24 @@ static void AnalyzeHidDevice(const wchar_t* devicePath)
 
     std::wcout << L"OpenStatus: SUCCESS\n";
 
+    auto PrintHidString = [](HANDLE h, const wchar_t* label, auto func)
+        {
+            wchar_t buffer[256] = {};
+
+            if (func(h, buffer, sizeof(buffer)))
+            {
+                std::wcout << label << L": " << buffer << L"\n";
+            }
+            else
+            {
+                std::wcout << label << L": <failed> GetLastError=" << GetLastError() << L"\n";
+            }
+        };
+
+    PrintHidString(h, L"Manufacturer", HidD_GetManufacturerString);
+    PrintHidString(h, L"Product", HidD_GetProductString);
+    PrintHidString(h, L"SerialNumber", HidD_GetSerialNumberString);
+
     HIDD_ATTRIBUTES attrs = {};
     attrs.Size = sizeof(attrs);
 
@@ -92,23 +223,29 @@ static void AnalyzeHidDevice(const wchar_t* devicePath)
         std::wcout << L"InputReportByteLength:   " << caps.InputReportByteLength << L"\n";
         std::wcout << L"OutputReportByteLength:  " << caps.OutputReportByteLength << L"\n";
         std::wcout << L"FeatureReportByteLength: " << caps.FeatureReportByteLength << L"\n";
+        PrintButtonCaps(preparsed, HidP_Input, caps.NumberInputButtonCaps, L"Input Button Caps");
+        PrintValueCaps(preparsed, HidP_Input, caps.NumberInputValueCaps, L"Input Value Caps");
+
+        PrintButtonCaps(preparsed, HidP_Feature, caps.NumberFeatureButtonCaps, L"Feature Button Caps");
+        PrintValueCaps(preparsed, HidP_Feature, caps.NumberFeatureValueCaps, L"Feature Value Caps");
 
         if (caps.InputReportByteLength > 0)
         {
             std::vector<BYTE> buffer(caps.InputReportByteLength);
             DWORD bytesRead = 0;
 
-            BOOL ok = ReadFile(
+            /*BOOL ok = ReadFile(
                 h,
                 buffer.data(),
                 static_cast<DWORD>(buffer.size()),
                 &bytesRead,
                 nullptr
-            );
+            );*/
 
-            std::wcout << L"ReadFile Result: " << (ok ? L"SUCCESS" : L"FAILED") << L"\n";
-            std::wcout << L"ReadFile LastError: " << GetLastError() << L"\n";
-            std::wcout << L"Read BytesReturned: " << bytesRead << L"\n";
+            if (caps.InputReportByteLength > 0)
+            {
+                std::wcout << L"ReadFile: SKIPPED\n";
+            }
         }
     }
 

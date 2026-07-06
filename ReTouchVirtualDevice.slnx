@@ -14,5 +14,8 @@
   <Project Path="TridentCaptureFilter/TridentCaptureFilter.vcxproj">
     <Deploy />
   </Project>
+  <Project Path="TridentHidIoctlAnalyzer/TridentHidIoctlAnalyzer.vcxproj" Id="96f6b711-dffc-447d-8c47-0cf6284959f2">
+    <Platform Project="x64" />
+  </Project>
   <Project Path="user/user.csproj" />
 </Solution>
