@@ -161,6 +161,22 @@ static BOOL ReadStatsFromDevice(const wchar_t* devicePath)
         }
     }
 
+    if (stats.LastReadDataLength >= 6)
+    {
+        USHORT x = static_cast<USHORT>(
+            stats.LastReadData[2] |
+            (stats.LastReadData[3] << 8)
+            );
+
+        USHORT y = static_cast<USHORT>(
+            stats.LastReadData[4] |
+            (stats.LastReadData[5] << 8)
+            );
+
+        wprintf(L"DecodedTouchX:                   %u\n", x);
+        wprintf(L"DecodedTouchY:                   %u\n", y);
+    }
+
     wprintf(L"\n");
 
     CloseHandle(device);

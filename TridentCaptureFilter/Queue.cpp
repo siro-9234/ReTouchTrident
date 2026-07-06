@@ -37,6 +37,34 @@ static volatile LONG g_LastReadInformation = 0;
 static volatile LONG g_LastReadDataLength = 0;
 static UCHAR g_LastReadData[64] = {};
 
+typedef struct _TOUCH_POINT
+{
+    USHORT X;
+    USHORT Y;
+} TOUCH_POINT, * PTOUCH_POINT;
+
+BOOLEAN DecodeTouchReport(
+    _In_reads_bytes_(ReportLength) PUCHAR Report,
+    _In_ size_t ReportLength,
+    _Out_ PTOUCH_POINT Point
+)
+{
+    if (Report == NULL || Point == NULL)
+    {
+        return FALSE;
+    }
+
+    if (ReportLength < 6)
+    {
+        return FALSE;
+    }
+
+    Point->X = (USHORT)(Report[2] | (Report[3] << 8));
+    Point->Y = (USHORT)(Report[4] | (Report[5] << 8));
+
+    return TRUE;
+}
+
 static
 VOID
 TridentRecordNonStatsDeviceIoctl(
