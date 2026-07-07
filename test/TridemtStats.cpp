@@ -70,6 +70,16 @@ typedef struct _TRIDENT_STATS
     LONG LastFrameX;
     LONG LastFrameY;
     LONG LastFrameIsDown;
+
+    LONG ReTouchInterfaceQueryCount;
+    LONG ReTouchInterfaceFound;
+    LONG LastReTouchInterfaceStatus;
+
+    LONG ReTouchClientInitializeCount;
+    LONG ReTouchClientShutdownCount;
+    LONG ReTouchClientSubmitFrameCount;
+    LONG ReTouchClientLastSubmitFrameStatus;
+    LONG ReTouchClientLastSubmitFrameContactCount;
 } TRIDENT_STATS, * PTRIDENT_STATS;
 
 static BOOL ReadStatsFromDevice(const wchar_t* devicePath)
@@ -200,6 +210,16 @@ static BOOL ReadStatsFromDevice(const wchar_t* devicePath)
         wprintf(L"LastFrameX:                     %ld\n", stats.LastFrameX);
         wprintf(L"LastFrameY:                     %ld\n", stats.LastFrameY);
         wprintf(L"LastFrameIsDown:                %ld\n", stats.LastFrameIsDown);
+
+        wprintf(L"ReTouchInterfaceQueryCount:      %ld\n", stats.ReTouchInterfaceQueryCount);
+        wprintf(L"ReTouchInterfaceFound:           %ld\n", stats.ReTouchInterfaceFound);
+        wprintf(L"LastReTouchInterfaceStatus:      0x%08X\n", stats.LastReTouchInterfaceStatus);
+
+        wprintf(L"ReTouchClientInitializeCount:    %ld\n", stats.ReTouchClientInitializeCount);
+        wprintf(L"ReTouchClientShutdownCount:      %ld\n", stats.ReTouchClientShutdownCount);
+        wprintf(L"ReTouchClientSubmitFrameCount:   %ld\n", stats.ReTouchClientSubmitFrameCount);
+        wprintf(L"ReTouchClientLastSubmitStatus:   0x%08X\n", stats.ReTouchClientLastSubmitFrameStatus);
+        wprintf(L"ReTouchClientLastContactCount:   %ld\n", stats.ReTouchClientLastSubmitFrameContactCount);
     }
 
     wprintf(L"\n");

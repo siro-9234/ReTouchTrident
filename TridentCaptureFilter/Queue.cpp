@@ -1,4 +1,13 @@
 #include "Queue.h"
+#include "ReTouchClient.h"
+#include <initguid.h>
+
+// {7B3F8C21-29F4-4B6A-9C11-2F8A4E72D190}
+DEFINE_GUID(
+    GUID_DEVINTERFACE_RETOUCH,
+    0x7b3f8c21, 0x29f4, 0x4b6a,
+    0x9c, 0x11, 0x2f, 0x8a, 0x4e, 0x72, 0xd1, 0x90
+);
 
 static volatile LONG g_InternalIoctlCount = 0;
 static volatile LONG g_ReadReportReceived = 0;
@@ -48,21 +57,9 @@ static volatile LONG g_LastFrameX = 0;
 static volatile LONG g_LastFrameY = 0;
 static volatile LONG g_LastFrameIsDown = 0;
 
-#define RETOUCH_MAX_CONTACTS 10
-
-typedef struct _RETOUCH_CONTACT
-{
-    UCHAR Id;
-    UCHAR IsDown;
-    USHORT X;
-    USHORT Y;
-} RETOUCH_CONTACT, * PRETOUCH_CONTACT;
-
-typedef struct _RETOUCH_FRAME
-{
-    UCHAR ContactCount;
-    RETOUCH_CONTACT Contacts[RETOUCH_MAX_CONTACTS];
-} RETOUCH_FRAME, * PRETOUCH_FRAME;
+static volatile LONG g_ReTouchInterfaceQueryCount = 0;
+static volatile LONG g_ReTouchInterfaceFound = 0;
+static volatile LONG g_LastReTouchInterfaceStatus = 0;
 
 typedef struct _TOUCH_POINT
 {
@@ -71,7 +68,44 @@ typedef struct _TOUCH_POINT
     BOOLEAN TipSwitch;
 } TOUCH_POINT, * PTOUCH_POINT;
 
-BOOLEAN DecodeTouchReport(
+/*static
+VOID
+TridentCheckReTouchInterface()
+{
+    InterlockedIncrement(&g_ReTouchInterfaceQueryCount);
+
+    PWSTR symbolicLinkList = nullptr;
+
+    NTSTATUS status = IoGetDeviceInterfaces(
+        &GUID_DEVINTERFACE_RETOUCH,
+        nullptr,
+        DEVICE_INTERFACE_INCLUDE_NONACTIVE,
+        &symbolicLinkList
+    );
+
+    InterlockedExchange(&g_LastReTouchInterfaceStatus, status);
+
+    if (NT_SUCCESS(status) &&
+        symbolicLinkList != nullptr &&
+        symbolicLinkList[0] != UNICODE_NULL)
+    {
+        InterlockedExchange(&g_ReTouchInterfaceFound, 1);
+    }
+    else
+    {
+        InterlockedExchange(&g_ReTouchInterfaceFound, 0);
+    }
+
+    if (symbolicLinkList != nullptr)
+    {
+        ExFreePool(symbolicLinkList);
+    }
+}*/
+
+_Success_(return != FALSE)
+static
+BOOLEAN
+DecodeTouchReport(
     _In_reads_bytes_(ReportLength) PUCHAR Report,
     _In_ size_t ReportLength,
     _Out_ PTOUCH_POINT Point
@@ -459,6 +493,30 @@ TridentEvtIoDeviceControl(
         stats->LastFrameIsDown =
             InterlockedCompareExchange(&g_LastFrameIsDown, 0, 0);
 
+        stats->ReTouchInterfaceQueryCount =
+            InterlockedCompareExchange(&g_ReTouchInterfaceQueryCount, 0, 0);
+
+        stats->ReTouchInterfaceFound =
+            InterlockedCompareExchange(&g_ReTouchInterfaceFound, 0, 0);
+
+        stats->LastReTouchInterfaceStatus =
+            InterlockedCompareExchange(&g_LastReTouchInterfaceStatus, 0, 0);
+
+        stats->ReTouchClientInitializeCount =
+            ReTouchClient::GetInitializeCount();
+
+        stats->ReTouchClientShutdownCount =
+            ReTouchClient::GetShutdownCount();
+
+        stats->ReTouchClientSubmitFrameCount =
+            ReTouchClient::GetSubmitFrameCount();
+
+        stats->ReTouchClientLastSubmitFrameStatus =
+            ReTouchClient::GetLastSubmitFrameStatus();
+
+        stats->ReTouchClientLastSubmitFrameContactCount =
+            ReTouchClient::GetLastSubmitFrameContactCount();
+
         RtlCopyMemory(
             stats->LastReadData,
             g_LastReadData,
@@ -604,6 +662,11 @@ TridentReadCompletion(
                 InterlockedExchange(&g_LastFrameX, frame.Contacts[0].X);
                 InterlockedExchange(&g_LastFrameY, frame.Contacts[0].Y);
                 InterlockedExchange(&g_LastFrameIsDown, frame.Contacts[0].IsDown);
+
+                NTSTATUS submitStatus =
+                    ReTouchClient::SubmitFrame(&frame);
+
+                UNREFERENCED_PARAMETER(submitStatus);
             }
             else
             {

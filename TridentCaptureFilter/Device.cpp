@@ -1,5 +1,6 @@
 #include "Device.h"
 #include "Queue.h"
+#include "ReTouchClient.h"
 
 extern "C"
 NTSTATUS
@@ -36,6 +37,13 @@ TridentEvtDeviceAdd(
         return status;
     }
 
+    status = ReTouchClient::Initialize();
+
+    if (!NT_SUCCESS(status))
+    {
+        return status;
+    }
+
     WDF_IO_QUEUE_CONFIG queueConfig;
 
     WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(
@@ -61,5 +69,11 @@ TridentEvtDeviceAdd(
         &queue
     );
 
-    return status;
+    if (!NT_SUCCESS(status))
+    {
+        ReTouchClient::Shutdown();
+        return status;
+    }
+
+    return STATUS_SUCCESS;
 }

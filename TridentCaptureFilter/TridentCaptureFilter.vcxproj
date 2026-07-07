@@ -122,12 +122,13 @@
   <ItemGroup>
     <ClCompile Include="Device.cpp" />
     <ClCompile Include="DriverEntry.cpp" />
-    <ClCompile Include="Filter.cpp" />
     <ClCompile Include="Queue.cpp" />
+    <ClCompile Include="ReTouchClient.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Device.h" />
     <ClInclude Include="Queue.h" />
+    <ClInclude Include="ReTouchClient.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
