@@ -78,4 +78,9 @@ typedef struct _TRIDENT_STATS
     LONG LastDecodeTouchReportFailed;
 
     LONG LastDecodedTipSwitch;
+
+    LONG LastFrameContactCount;
+    LONG LastFrameX;
+    LONG LastFrameY;
+    LONG LastFrameIsDown;
 } TRIDENT_STATS, * PTRIDENT_STATS;

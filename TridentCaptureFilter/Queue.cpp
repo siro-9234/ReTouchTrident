@@ -43,6 +43,27 @@ static volatile LONG g_LastDecodeTouchReportSucceeded = 0;
 static volatile LONG g_LastDecodeTouchReportFailed = 0;
 static volatile LONG g_LastDecodedTipSwitch = 0;
 
+static volatile LONG g_LastFrameContactCount = 0;
+static volatile LONG g_LastFrameX = 0;
+static volatile LONG g_LastFrameY = 0;
+static volatile LONG g_LastFrameIsDown = 0;
+
+#define RETOUCH_MAX_CONTACTS 10
+
+typedef struct _RETOUCH_CONTACT
+{
+    UCHAR Id;
+    UCHAR IsDown;
+    USHORT X;
+    USHORT Y;
+} RETOUCH_CONTACT, * PRETOUCH_CONTACT;
+
+typedef struct _RETOUCH_FRAME
+{
+    UCHAR ContactCount;
+    RETOUCH_CONTACT Contacts[RETOUCH_MAX_CONTACTS];
+} RETOUCH_FRAME, * PRETOUCH_FRAME;
+
 typedef struct _TOUCH_POINT
 {
     USHORT X;
@@ -426,6 +447,18 @@ TridentEvtIoDeviceControl(
         stats->LastDecodedTipSwitch =
             InterlockedCompareExchange(&g_LastDecodedTipSwitch, 0, 0);
 
+        stats->LastFrameContactCount =
+            InterlockedCompareExchange(&g_LastFrameContactCount, 0, 0);
+
+        stats->LastFrameX =
+            InterlockedCompareExchange(&g_LastFrameX, 0, 0);
+
+        stats->LastFrameY =
+            InterlockedCompareExchange(&g_LastFrameY, 0, 0);
+
+        stats->LastFrameIsDown =
+            InterlockedCompareExchange(&g_LastFrameIsDown, 0, 0);
+
         RtlCopyMemory(
             stats->LastReadData,
             g_LastReadData,
@@ -557,6 +590,20 @@ TridentReadCompletion(
                 InterlockedExchange(&g_LastDecodedTouchY, point.Y);
                 InterlockedExchange(&g_LastDecodeTouchReportSucceeded, 1);
                 InterlockedExchange(&g_LastDecodedTipSwitch, point.TipSwitch ? 1 : 0);
+
+                RETOUCH_FRAME frame = {};
+
+                frame.ContactCount = point.TipSwitch ? 1 : 0;
+
+                frame.Contacts[0].Id = 0;
+                frame.Contacts[0].IsDown = point.TipSwitch ? 1 : 0;
+                frame.Contacts[0].X = point.X;
+                frame.Contacts[0].Y = point.Y;
+
+                InterlockedExchange(&g_LastFrameContactCount, frame.ContactCount);
+                InterlockedExchange(&g_LastFrameX, frame.Contacts[0].X);
+                InterlockedExchange(&g_LastFrameY, frame.Contacts[0].Y);
+                InterlockedExchange(&g_LastFrameIsDown, frame.Contacts[0].IsDown);
             }
             else
             {
