@@ -1,5 +1,5 @@
 #include "Device.h"
-
+#include "ReTouchStats.h"
 #include "VirtualTouch.h"
 #include "Queue.h"
 #include "DeviceInterface.h"
@@ -11,7 +11,8 @@ ReTouchEvtDeviceCleanup(
 {
     UNREFERENCED_PARAMETER(DeviceObject);
 
-    KdPrint(("ReTouch Trident: Device cleanup\n"));
+    ReTouchStatsRecordDeviceCleanup();
+
     VirtualTouch::Shutdown();
 }
 
@@ -23,7 +24,17 @@ ReTouchEvtDeviceAdd(
 {
     UNREFERENCED_PARAMETER(Driver);
 
-    KdPrint(("ReTouch Trident: DeviceAdd start\n"));
+    ReTouchStatsRecordDeviceAdd();
+
+    WdfDeviceInitSetDeviceType(
+        DeviceInit,
+        FILE_DEVICE_UNKNOWN
+    );
+
+    WdfDeviceInitSetExclusive(
+        DeviceInit,
+        FALSE
+    );
 
     NTSTATUS status;
 
@@ -41,7 +52,6 @@ ReTouchEvtDeviceAdd(
 
     if (!NT_SUCCESS(status))
     {
-        KdPrint(("ReTouch Trident: WdfDeviceCreate failed 0x%08X\n", status));
         return status;
     }
 
@@ -65,5 +75,7 @@ ReTouchEvtDeviceAdd(
 
     status = VirtualTouch::Initialize(device);
 
-    return status;
+    ReTouchStatsRecordVirtualTouchInitialize(status);
+
+    return STATUS_SUCCESS;
 }

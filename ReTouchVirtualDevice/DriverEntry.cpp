@@ -13,7 +13,6 @@ NTSTATUS DriverEntry(
     PUNICODE_STRING RegistryPath
 )
 {
-    KdPrint(("ReTouch Trident: DriverEntry\n"));
 
     WDF_DRIVER_CONFIG config;
     WDF_DRIVER_CONFIG_INIT(&config, ReTouchEvtDeviceAdd);

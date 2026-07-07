@@ -26,6 +26,12 @@ ReTouchVirtualDevice.sys = 1
 [Driver_Install.NT]
 CopyFiles=DriverCopyFiles
 
+[Driver_Install.NT.HW]
+AddReg=Vhf_AddReg
+
+[Vhf_AddReg]
+HKR,,"LowerFilters",0x00010000,"vhf"
+
 [DriverCopyFiles]
 ReTouchVirtualDevice.sys
 

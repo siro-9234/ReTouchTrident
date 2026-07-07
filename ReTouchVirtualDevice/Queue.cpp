@@ -1,6 +1,7 @@
 #include "Queue.h"
 #include "Ioctl.h"
 #include "VirtualTouch.h"
+#include "ReTouchStats.h"
 
 VOID EvtIoDeviceControl(
     WDFQUEUE Queue,
@@ -11,23 +12,47 @@ VOID EvtIoDeviceControl(
 )
 {
     UNREFERENCED_PARAMETER(Queue);
-    UNREFERENCED_PARAMETER(OutputBufferLength);
 
     NTSTATUS status = STATUS_SUCCESS;
 
-    KdPrint(("ReTouch Trident: IOCTL received 0x%08X, input=%llu\n",
-        IoControlCode,
-        (unsigned long long)InputBufferLength));
-
     switch (IoControlCode)
     {
+    case IOCTL_RETOUCH_GET_STATS:
+    {
+        if (OutputBufferLength < sizeof(RETOUCH_STATS))
+        {
+            status = STATUS_BUFFER_TOO_SMALL;
+            break;
+        }
+
+        PRETOUCH_STATS stats = nullptr;
+
+        status = WdfRequestRetrieveOutputBuffer(
+            Request,
+            sizeof(RETOUCH_STATS),
+            reinterpret_cast<PVOID*>(&stats),
+            nullptr
+        );
+
+        if (!NT_SUCCESS(status))
+        {
+            break;
+        }
+
+        ReTouchStatsSnapshot(stats);
+
+        WdfRequestCompleteWithInformation(
+            Request,
+            STATUS_SUCCESS,
+            sizeof(RETOUCH_STATS)
+        );
+        return;
+    }
+
     case IOCTL_RETOUCH_SUBMIT_FRAME:
     {
-        KdPrint(("ReTouch Trident: IOCTL_RETOUCH_SUBMIT_FRAME\n"));
-
         if (InputBufferLength < sizeof(RETOUCH_FRAME))
         {
-            KdPrint(("ReTouch Trident: input buffer too small\n"));
             status = STATUS_BUFFER_TOO_SMALL;
             break;
         }
@@ -37,32 +62,26 @@ VOID EvtIoDeviceControl(
         status = WdfRequestRetrieveInputBuffer(
             Request,
             sizeof(RETOUCH_FRAME),
-            (PVOID*)&frame,
-            nullptr);
+            reinterpret_cast<PVOID*>(&frame),
+            nullptr
+        );
 
         if (!NT_SUCCESS(status))
         {
-            KdPrint(("ReTouch Trident: WdfRequestRetrieveInputBuffer failed 0x%08X\n", status));
             break;
         }
 
         if (frame->ContactCount > RETOUCH_MAX_CONTACTS)
         {
-            KdPrint(("ReTouch Trident: invalid ContactCount %u\n", frame->ContactCount));
             status = STATUS_INVALID_PARAMETER;
             break;
         }
 
-        KdPrint(("ReTouch Trident: SubmitFrame ContactCount=%u\n", frame->ContactCount));
-
         status = VirtualTouch::SubmitFrame(frame);
-
-        KdPrint(("ReTouch Trident: SubmitFrame returned 0x%08X\n", status));
         break;
     }
 
     default:
-        KdPrint(("ReTouch Trident: unknown IOCTL 0x%08X\n", IoControlCode));
         status = STATUS_INVALID_DEVICE_REQUEST;
         break;
     }
@@ -74,13 +93,12 @@ NTSTATUS QueueInitialize(
     WDFDEVICE Device
 )
 {
-    KdPrint(("ReTouch Trident: QueueInitialize start\n"));
-
     WDF_IO_QUEUE_CONFIG config;
 
     WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(
         &config,
-        WdfIoQueueDispatchSequential);
+        WdfIoQueueDispatchSequential
+    );
 
     config.EvtIoDeviceControl = EvtIoDeviceControl;
 
@@ -88,9 +106,13 @@ NTSTATUS QueueInitialize(
         Device,
         &config,
         WDF_NO_OBJECT_ATTRIBUTES,
-        WDF_NO_HANDLE);
+        WDF_NO_HANDLE
+    );
 
-    KdPrint(("ReTouch Trident: WdfIoQueueCreate returned 0x%08X\n", status));
+    if (NT_SUCCESS(status))
+    {
+        ReTouchStatsRecordQueueInitialize();
+    }
 
     return status;
 }

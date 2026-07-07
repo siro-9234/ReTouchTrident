@@ -10,7 +10,33 @@
 #define IOCTL_RETOUCH_SUBMIT_FRAME \
     CTL_CODE(FILE_DEVICE_RETOUCH, 0x801, METHOD_BUFFERED, FILE_WRITE_DATA)
 
+#define IOCTL_RETOUCH_GET_STATS \
+    CTL_CODE(FILE_DEVICE_RETOUCH, 0x802, METHOD_BUFFERED, FILE_READ_DATA)
+
 #pragma pack(push, 1)
+
+typedef struct _RETOUCH_STATS
+{
+    LONG DeviceAddCount;
+    LONG DeviceCleanupCount;
+    LONG QueueInitializeCount;
+
+    LONG VirtualTouchInitializeCount;
+    LONG VirtualTouchInitializeStatus;
+
+    LONG VhfCreateStatus;
+    LONG VhfStartCount;
+
+    LONG SubmitFrameCount;
+    LONG LastSubmitFrameStatus;
+    LONG LastContactCount;
+
+    LONG GetFeatureCount;
+    LONG LastGetFeatureReportId;
+
+    LONG WdmDeviceObjectNull;
+
+} RETOUCH_STATS, * PRETOUCH_STATS;
 
 typedef struct _RETOUCH_CONTACT
 {

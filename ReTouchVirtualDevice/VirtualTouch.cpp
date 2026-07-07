@@ -1,5 +1,6 @@
 #include "VirtualTouch.h"
 #include "HidDescriptor.h"
+#include "ReTouchStats.h"
 
 VHFHANDLE VirtualTouch::m_VhfHandle = nullptr;
 
@@ -16,15 +17,13 @@ EvtVhfGetFeature(
     UNREFERENCED_PARAMETER(VhfClientContext);
     UNREFERENCED_PARAMETER(VhfOperationContext);
 
-    KdPrint(("ReTouch Trident: GetFeature called\n"));
-
     NTSTATUS status = STATUS_NOT_SUPPORTED;
 
     if (HidTransferPacket != nullptr)
     {
-        KdPrint(("ReTouch Trident: GetFeature reportId=%u len=%lu\n",
-            HidTransferPacket->reportId,
-            HidTransferPacket->reportBufferLen));
+        ReTouchStatsRecordGetFeature(
+            HidTransferPacket->reportId
+        );
     }
 
     if (HidTransferPacket != nullptr &&
@@ -39,9 +38,6 @@ EvtVhfGetFeature(
         report->MaximumContactCount = RETOUCH_MAX_CONTACTS;
 
         status = STATUS_SUCCESS;
-
-        KdPrint(("ReTouch Trident: GetFeature MaxContactCount=%u\n",
-            report->MaximumContactCount));
     }
 
     VhfAsyncOperationComplete(
@@ -52,13 +48,22 @@ EvtVhfGetFeature(
 
 NTSTATUS VirtualTouch::Initialize(WDFDEVICE Device)
 {
-    KdPrint(("ReTouch Trident: VirtualTouch::Initialize start\n"));
+    PDEVICE_OBJECT pdo = WdfDeviceWdmGetDeviceObject(Device);
+
+    ReTouchStatsRecordWdmDeviceObjectNull(
+        pdo == nullptr ? TRUE : FALSE
+    );
+
+    if (pdo == nullptr)
+    {
+        return STATUS_INVALID_DEVICE_STATE;
+    }
 
     VHF_CONFIG config;
 
     VHF_CONFIG_INIT(
         &config,
-        WdfDeviceWdmGetDeviceObject(Device),
+        pdo,
         (USHORT)g_ReportDescriptorSize,
         (PUCHAR)g_ReportDescriptor
     );
@@ -68,28 +73,27 @@ NTSTATUS VirtualTouch::Initialize(WDFDEVICE Device)
     config.VersionNumber = 1;
     config.EvtVhfAsyncOperationGetFeature = EvtVhfGetFeature;
 
-    KdPrint(("ReTouch Trident: ReportDescriptorSize=%lu\n", g_ReportDescriptorSize));
-
     NTSTATUS status = VhfCreate(
         &config,
         &m_VhfHandle
     );
 
-    KdPrint(("ReTouch Trident: VhfCreate returned 0x%08X\n", status));
+    ReTouchStatsRecordVhfCreate(status);
 
     if (!NT_SUCCESS(status))
+    {
         return status;
+    }
 
     VhfStart(m_VhfHandle);
 
-    KdPrint(("ReTouch Trident: VHF started\n"));
+    ReTouchStatsRecordVhfStart();
 
     return STATUS_SUCCESS;
 }
 
 void VirtualTouch::Shutdown()
 {
-    KdPrint(("ReTouch Trident: VirtualTouch::Shutdown\n"));
 
     if (m_VhfHandle != nullptr)
     {
@@ -123,17 +127,14 @@ NTSTATUS VirtualTouch::SubmitFrame(
     PRETOUCH_FRAME frame
 )
 {
-    KdPrint(("ReTouch Trident: SubmitFrame start\n"));
 
     if (m_VhfHandle == nullptr)
     {
-        KdPrint(("ReTouch Trident: SubmitFrame failed, VHF not ready\n"));
         return STATUS_DEVICE_NOT_READY;
     }
 
     if (frame == nullptr)
     {
-        KdPrint(("ReTouch Trident: SubmitFrame failed, frame null\n"));
         return STATUS_INVALID_PARAMETER;
     }
 
@@ -157,11 +158,6 @@ NTSTATUS VirtualTouch::SubmitFrame(
                 RETOUCH_FLAG_CONFIDENCE;
 
             activeCount++;
-
-            KdPrint(("ReTouch Trident: contact %u down x=%u y=%u\n",
-                frame->Contacts[i].Id,
-                frame->Contacts[i].X,
-                frame->Contacts[i].Y));
         }
         else
         {
@@ -178,9 +174,10 @@ NTSTATUS VirtualTouch::SubmitFrame(
 
     NTSTATUS status = VhfReadReportSubmit(m_VhfHandle, &packet);
 
-    KdPrint(("ReTouch Trident: VhfReadReportSubmit returned 0x%08X active=%u\n",
+    ReTouchStatsRecordSubmitFrame(
         status,
-        activeCount));
+        activeCount
+    );
 
     return status;
 }

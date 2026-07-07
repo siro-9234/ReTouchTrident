@@ -120,6 +120,7 @@
     <ClCompile Include="DriverEntry.cpp" />
     <ClCompile Include="HidDescriptor.cpp" />
     <ClCompile Include="Queue.cpp" />
+    <ClCompile Include="ReTouchStats.cpp" />
     <ClCompile Include="VirtualTouch.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -129,6 +130,7 @@
     <ClInclude Include="HidDescriptor.h" />
     <ClInclude Include="Ioctl.h" />
     <ClInclude Include="Queue.h" />
+    <ClInclude Include="ReTouchStats.h" />
     <ClInclude Include="TouchReport.h" />
     <ClInclude Include="VirtualTouch.h" />
   </ItemGroup>
