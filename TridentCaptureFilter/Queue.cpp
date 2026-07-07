@@ -517,6 +517,15 @@ TridentEvtIoDeviceControl(
         stats->ReTouchClientLastSubmitFrameContactCount =
             ReTouchClient::GetLastSubmitFrameContactCount();
 
+        stats->ReTouchClientQueryInterfaceCount =
+            ReTouchClient::GetQueryInterfaceCount();
+
+        stats->ReTouchClientInterfaceFound =
+            ReTouchClient::GetInterfaceFound();
+
+        stats->ReTouchClientLastQueryInterfaceStatus =
+            ReTouchClient::GetLastQueryInterfaceStatus();
+
         RtlCopyMemory(
             stats->LastReadData,
             g_LastReadData,

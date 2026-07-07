@@ -19,4 +19,8 @@ namespace ReTouchClient
     LONG GetSubmitFrameCount();
     LONG GetLastSubmitFrameStatus();
     LONG GetLastSubmitFrameContactCount();
+
+    LONG GetQueryInterfaceCount();
+    LONG GetInterfaceFound();
+    LONG GetLastQueryInterfaceStatus();
 }
