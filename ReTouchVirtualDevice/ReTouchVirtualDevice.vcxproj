@@ -116,12 +116,14 @@
     <FilesToPackage Include="$(TargetPath)" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="Device.cpp" />
     <ClCompile Include="DriverEntry.cpp" />
     <ClCompile Include="HidDescriptor.cpp" />
     <ClCompile Include="Queue.cpp" />
     <ClCompile Include="VirtualTouch.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Device.h" />
     <ClInclude Include="DeviceContext.h" />
     <ClInclude Include="DeviceInterface.h" />
     <ClInclude Include="HidDescriptor.h" />
