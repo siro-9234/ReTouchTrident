@@ -84,6 +84,10 @@ typedef struct _TRIDENT_STATS
     LONG ReTouchClientQueryInterfaceCount;
     LONG ReTouchClientInterfaceFound;
     LONG ReTouchClientLastQueryInterfaceStatus;
+
+    LONG ReTouchClientOpenCount;
+    LONG ReTouchClientOpenSucceeded;
+    LONG ReTouchClientLastOpenStatus;
 } TRIDENT_STATS, * PTRIDENT_STATS;
 
 static BOOL ReadStatsFromDevice(const wchar_t* devicePath)
@@ -228,6 +232,10 @@ static BOOL ReadStatsFromDevice(const wchar_t* devicePath)
         wprintf(L"ReTouchClientQueryInterfaceCount: %ld\n", stats.ReTouchClientQueryInterfaceCount);
         wprintf(L"ReTouchClientInterfaceFound:      %ld\n", stats.ReTouchClientInterfaceFound);
         wprintf(L"ReTouchClientLastQueryStatus:     0x%08X\n", stats.ReTouchClientLastQueryInterfaceStatus);
+
+        wprintf(L"ReTouchClientOpenCount:          %ld\n", stats.ReTouchClientOpenCount);
+        wprintf(L"ReTouchClientOpenSucceeded:      %ld\n", stats.ReTouchClientOpenSucceeded);
+        wprintf(L"ReTouchClientLastOpenStatus:     0x%08X\n", stats.ReTouchClientLastOpenStatus);
     }
 
     wprintf(L"\n");

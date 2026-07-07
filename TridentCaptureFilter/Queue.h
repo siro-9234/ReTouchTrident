@@ -113,4 +113,8 @@ typedef struct _TRIDENT_STATS
     LONG ReTouchClientQueryInterfaceCount;
     LONG ReTouchClientInterfaceFound;
     LONG ReTouchClientLastQueryInterfaceStatus;
+
+    LONG ReTouchClientOpenCount;
+    LONG ReTouchClientOpenSucceeded;
+    LONG ReTouchClientLastOpenStatus;
 } TRIDENT_STATS, * PTRIDENT_STATS;

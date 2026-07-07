@@ -23,4 +23,8 @@ namespace ReTouchClient
     LONG GetQueryInterfaceCount();
     LONG GetInterfaceFound();
     LONG GetLastQueryInterfaceStatus();
+
+    LONG GetOpenCount();
+    LONG GetOpenSucceeded();
+    LONG GetLastOpenStatus();
 }

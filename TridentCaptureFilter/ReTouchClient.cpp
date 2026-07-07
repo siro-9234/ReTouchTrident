@@ -11,6 +11,8 @@ DEFINE_GUID(
 
 namespace ReTouchClient
 {
+    static HANDLE g_DeviceHandle = nullptr;
+
     static volatile LONG g_InitializeCount = 0;
     static volatile LONG g_ShutdownCount = 0;
     static volatile LONG g_SubmitFrameCount = 0;
@@ -21,32 +23,132 @@ namespace ReTouchClient
     static volatile LONG g_InterfaceFound = 0;
     static volatile LONG g_LastQueryInterfaceStatus = 0;
 
+    static volatile LONG g_OpenCount = 0;
+    static volatile LONG g_OpenSucceeded = 0;
+    static volatile LONG g_LastOpenStatus = 0;
+
     static
         NTSTATUS
-        QueryInterface()
+        QueryInterface(
+            _Outptr_result_maybenull_ PWSTR* SymbolicLinkList
+        )
     {
-        InterlockedIncrement(&g_QueryInterfaceCount);
+        if (SymbolicLinkList == nullptr)
+        {
+            return STATUS_INVALID_PARAMETER;
+        }
 
-        PWSTR symbolicLinkList = nullptr;
+        *SymbolicLinkList = nullptr;
+
+        InterlockedIncrement(&g_QueryInterfaceCount);
 
         NTSTATUS status = IoGetDeviceInterfaces(
             &GUID_DEVINTERFACE_RETOUCH,
             nullptr,
             DEVICE_INTERFACE_INCLUDE_NONACTIVE,
-            &symbolicLinkList
+            SymbolicLinkList
         );
 
         InterlockedExchange(&g_LastQueryInterfaceStatus, status);
 
         if (NT_SUCCESS(status) &&
-            symbolicLinkList != nullptr &&
-            symbolicLinkList[0] != UNICODE_NULL)
+            *SymbolicLinkList != nullptr &&
+            (*SymbolicLinkList)[0] != UNICODE_NULL)
         {
             InterlockedExchange(&g_InterfaceFound, 1);
         }
         else
         {
             InterlockedExchange(&g_InterfaceFound, 0);
+        }
+
+        return status;
+    }
+
+    static
+        NTSTATUS
+        OpenFirstInterface(
+            _In_z_ PWSTR SymbolicLink
+        )
+    {
+        InterlockedIncrement(&g_OpenCount);
+
+        if (SymbolicLink == nullptr || SymbolicLink[0] == UNICODE_NULL)
+        {
+            InterlockedExchange(&g_OpenSucceeded, 0);
+            InterlockedExchange(&g_LastOpenStatus, STATUS_OBJECT_NAME_NOT_FOUND);
+            return STATUS_OBJECT_NAME_NOT_FOUND;
+        }
+
+        if (g_DeviceHandle != nullptr)
+        {
+            ZwClose(g_DeviceHandle);
+            g_DeviceHandle = nullptr;
+        }
+
+        UNICODE_STRING objectName;
+        RtlInitUnicodeString(&objectName, SymbolicLink);
+
+        OBJECT_ATTRIBUTES objectAttributes;
+        InitializeObjectAttributes(
+            &objectAttributes,
+            &objectName,
+            OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE,
+            nullptr,
+            nullptr
+        );
+
+        IO_STATUS_BLOCK ioStatus = {};
+
+        HANDLE handle = nullptr;
+
+        NTSTATUS status = ZwCreateFile(
+            &handle,
+            GENERIC_READ | GENERIC_WRITE | SYNCHRONIZE,
+            &objectAttributes,
+            &ioStatus,
+            nullptr,
+            FILE_ATTRIBUTE_NORMAL,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            FILE_OPEN,
+            FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
+            nullptr,
+            0
+        );
+
+        InterlockedExchange(&g_LastOpenStatus, status);
+
+        if (NT_SUCCESS(status))
+        {
+            g_DeviceHandle = handle;
+            InterlockedExchange(&g_OpenSucceeded, 1);
+        }
+        else
+        {
+            InterlockedExchange(&g_OpenSucceeded, 0);
+
+            if (handle != nullptr)
+            {
+                ZwClose(handle);
+            }
+        }
+
+        return status;
+    }
+
+    NTSTATUS Initialize()
+    {
+        InterlockedIncrement(&g_InitializeCount);
+
+        PWSTR symbolicLinkList = nullptr;
+
+        NTSTATUS status = QueryInterface(&symbolicLinkList);
+
+        if (NT_SUCCESS(status) &&
+            symbolicLinkList != nullptr &&
+            symbolicLinkList[0] != UNICODE_NULL)
+        {
+            status = OpenFirstInterface(symbolicLinkList);
         }
 
         if (symbolicLinkList != nullptr)
@@ -57,16 +159,17 @@ namespace ReTouchClient
         return status;
     }
 
-    NTSTATUS Initialize()
-    {
-        InterlockedIncrement(&g_InitializeCount);
-
-        return QueryInterface();
-    }
-
     VOID Shutdown()
     {
         InterlockedIncrement(&g_ShutdownCount);
+
+        if (g_DeviceHandle != nullptr)
+        {
+            ZwClose(g_DeviceHandle);
+            g_DeviceHandle = nullptr;
+        }
+
+        InterlockedExchange(&g_OpenSucceeded, 0);
     }
 
     NTSTATUS SubmitFrame(
@@ -77,69 +180,28 @@ namespace ReTouchClient
 
         if (Frame == nullptr)
         {
-            InterlockedExchange(
-                &g_LastSubmitFrameStatus,
-                STATUS_INVALID_PARAMETER
-            );
-
-            InterlockedExchange(
-                &g_LastSubmitFrameContactCount,
-                0
-            );
-
+            InterlockedExchange(&g_LastSubmitFrameStatus, STATUS_INVALID_PARAMETER);
+            InterlockedExchange(&g_LastSubmitFrameContactCount, 0);
             return STATUS_INVALID_PARAMETER;
         }
 
-        InterlockedExchange(
-            &g_LastSubmitFrameStatus,
-            STATUS_SUCCESS
-        );
-
-        InterlockedExchange(
-            &g_LastSubmitFrameContactCount,
-            Frame->ContactCount
-        );
+        InterlockedExchange(&g_LastSubmitFrameStatus, STATUS_SUCCESS);
+        InterlockedExchange(&g_LastSubmitFrameContactCount, Frame->ContactCount);
 
         return STATUS_SUCCESS;
     }
 
-    LONG GetInitializeCount()
-    {
-        return InterlockedCompareExchange(&g_InitializeCount, 0, 0);
-    }
+    LONG GetInitializeCount() { return InterlockedCompareExchange(&g_InitializeCount, 0, 0); }
+    LONG GetShutdownCount() { return InterlockedCompareExchange(&g_ShutdownCount, 0, 0); }
+    LONG GetSubmitFrameCount() { return InterlockedCompareExchange(&g_SubmitFrameCount, 0, 0); }
+    LONG GetLastSubmitFrameStatus() { return InterlockedCompareExchange(&g_LastSubmitFrameStatus, 0, 0); }
+    LONG GetLastSubmitFrameContactCount() { return InterlockedCompareExchange(&g_LastSubmitFrameContactCount, 0, 0); }
 
-    LONG GetShutdownCount()
-    {
-        return InterlockedCompareExchange(&g_ShutdownCount, 0, 0);
-    }
+    LONG GetQueryInterfaceCount() { return InterlockedCompareExchange(&g_QueryInterfaceCount, 0, 0); }
+    LONG GetInterfaceFound() { return InterlockedCompareExchange(&g_InterfaceFound, 0, 0); }
+    LONG GetLastQueryInterfaceStatus() { return InterlockedCompareExchange(&g_LastQueryInterfaceStatus, 0, 0); }
 
-    LONG GetSubmitFrameCount()
-    {
-        return InterlockedCompareExchange(&g_SubmitFrameCount, 0, 0);
-    }
-
-    LONG GetLastSubmitFrameStatus()
-    {
-        return InterlockedCompareExchange(&g_LastSubmitFrameStatus, 0, 0);
-    }
-
-    LONG GetLastSubmitFrameContactCount()
-    {
-        return InterlockedCompareExchange(&g_LastSubmitFrameContactCount, 0, 0);
-    }
-
-    LONG GetQueryInterfaceCount()
-    {
-        return InterlockedCompareExchange(&g_QueryInterfaceCount, 0, 0);
-    }
-
-    LONG GetInterfaceFound()
-    {
-        return InterlockedCompareExchange(&g_InterfaceFound, 0, 0);
-    }
-
-    LONG GetLastQueryInterfaceStatus()
-    {
-        return InterlockedCompareExchange(&g_LastQueryInterfaceStatus, 0, 0);
-    }
+    LONG GetOpenCount() { return InterlockedCompareExchange(&g_OpenCount, 0, 0); }
+    LONG GetOpenSucceeded() { return InterlockedCompareExchange(&g_OpenSucceeded, 0, 0); }
+    LONG GetLastOpenStatus() { return InterlockedCompareExchange(&g_LastOpenStatus, 0, 0); }
 }
