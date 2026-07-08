@@ -9,6 +9,11 @@ DEFINE_GUID(
     0x9c, 0x11, 0x2f, 0x8a, 0x4e, 0x72, 0xd1, 0x90
 );
 
+#define FILE_DEVICE_RETOUCH 0x8000
+
+#define IOCTL_RETOUCH_SUBMIT_FRAME \
+    CTL_CODE(FILE_DEVICE_RETOUCH, 0x801, METHOD_BUFFERED, FILE_WRITE_DATA)
+
 namespace ReTouchClient
 {
     static HANDLE g_DeviceHandle = nullptr;
@@ -26,6 +31,13 @@ namespace ReTouchClient
     static volatile LONG g_OpenCount = 0;
     static volatile LONG g_OpenSucceeded = 0;
     static volatile LONG g_LastOpenStatus = 0;
+
+    static volatile LONG g_TestSubmitCount = 0;
+    static volatile LONG g_TestSubmitSucceeded = 0;
+    static volatile LONG g_LastTestSubmitStatus = 0;
+    static volatile LONG g_TestSubmitIssued = 0;
+
+    static RETOUCH_FRAME g_TestFrame = {};
 
     static
         NTSTATUS
@@ -99,7 +111,6 @@ namespace ReTouchClient
         );
 
         IO_STATUS_BLOCK ioStatus = {};
-
         HANDLE handle = nullptr;
 
         NTSTATUS status = ZwCreateFile(
@@ -136,6 +147,57 @@ namespace ReTouchClient
         return status;
     }
 
+    static
+        NTSTATUS
+        SubmitOneTestFrame()
+    {
+        InterlockedIncrement(&g_TestSubmitCount);
+
+        if (g_DeviceHandle == nullptr)
+        {
+            InterlockedExchange(&g_TestSubmitSucceeded, 0);
+            InterlockedExchange(&g_LastTestSubmitStatus, STATUS_DEVICE_NOT_READY);
+            return STATUS_DEVICE_NOT_READY;
+        }
+
+        RtlZeroMemory(&g_TestFrame, sizeof(g_TestFrame));
+        g_TestFrame.ContactCount = 0;
+
+        IO_STATUS_BLOCK ioStatus = {};
+
+        const ULONG ioctlCode =
+            static_cast<ULONG>(IOCTL_RETOUCH_SUBMIT_FRAME);
+
+        const ULONG inputLength =
+            static_cast<ULONG>(sizeof(g_TestFrame));
+
+        NTSTATUS status = ZwDeviceIoControlFile(
+            g_DeviceHandle,
+            nullptr,
+            nullptr,
+            nullptr,
+            &ioStatus,
+            ioctlCode,
+            &g_TestFrame,
+            inputLength,
+            nullptr,
+            0UL
+        );
+
+        InterlockedExchange(&g_LastTestSubmitStatus, status);
+
+        if (NT_SUCCESS(status))
+        {
+            InterlockedExchange(&g_TestSubmitSucceeded, 1);
+        }
+        else
+        {
+            InterlockedExchange(&g_TestSubmitSucceeded, 0);
+        }
+
+        return status;
+    }
+
     NTSTATUS Initialize()
     {
         InterlockedIncrement(&g_InitializeCount);
@@ -154,6 +216,20 @@ namespace ReTouchClient
         if (symbolicLinkList != nullptr)
         {
             ExFreePool(symbolicLinkList);
+        }
+
+        if (NT_SUCCESS(status))
+        {
+            LONG alreadyIssued = InterlockedCompareExchange(
+                &g_TestSubmitIssued,
+                1,
+                0
+            );
+
+            if (alreadyIssued == 0)
+            {
+                SubmitOneTestFrame();
+            }
         }
 
         return status;
@@ -204,4 +280,8 @@ namespace ReTouchClient
     LONG GetOpenCount() { return InterlockedCompareExchange(&g_OpenCount, 0, 0); }
     LONG GetOpenSucceeded() { return InterlockedCompareExchange(&g_OpenSucceeded, 0, 0); }
     LONG GetLastOpenStatus() { return InterlockedCompareExchange(&g_LastOpenStatus, 0, 0); }
+
+    LONG GetTestSubmitCount() { return InterlockedCompareExchange(&g_TestSubmitCount, 0, 0); }
+    LONG GetTestSubmitSucceeded() { return InterlockedCompareExchange(&g_TestSubmitSucceeded, 0, 0); }
+    LONG GetLastTestSubmitStatus() { return InterlockedCompareExchange(&g_LastTestSubmitStatus, 0, 0); }
 }

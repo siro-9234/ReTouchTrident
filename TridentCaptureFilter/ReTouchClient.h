@@ -27,4 +27,8 @@ namespace ReTouchClient
     LONG GetOpenCount();
     LONG GetOpenSucceeded();
     LONG GetLastOpenStatus();
+
+    LONG GetTestSubmitCount();
+    LONG GetTestSubmitSucceeded();
+    LONG GetLastTestSubmitStatus();
 }
