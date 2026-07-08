@@ -124,6 +124,7 @@
     <ClCompile Include="DriverEntry.cpp" />
     <ClCompile Include="Queue.cpp" />
     <ClCompile Include="ReTouchClient.cpp" />
+    <ClCompile Include="ReTouchClient.WorkItem.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Device.h" />

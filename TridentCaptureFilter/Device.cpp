@@ -37,7 +37,7 @@ TridentEvtDeviceAdd(
         return status;
     }
 
-    status = ReTouchClient::Initialize();
+    status = ReTouchClient::Initialize(device);
 
     if (!NT_SUCCESS(status))
     {

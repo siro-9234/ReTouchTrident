@@ -1,12 +1,15 @@
 #pragma once
 
 #include <ntddk.h>
+#include <wdf.h>
 
 #include "Queue.h"
 
 namespace ReTouchClient
 {
-    NTSTATUS Initialize();
+    NTSTATUS Initialize(
+        _In_ WDFDEVICE Device
+    );
 
     VOID Shutdown();
 
@@ -14,8 +17,13 @@ namespace ReTouchClient
         _In_ PRETOUCH_FRAME Frame
     );
 
+    NTSTATUS SendFrameToDevice(
+        _In_ PRETOUCH_FRAME Frame
+    );
+
     LONG GetInitializeCount();
     LONG GetShutdownCount();
+
     LONG GetSubmitFrameCount();
     LONG GetLastSubmitFrameStatus();
     LONG GetLastSubmitFrameContactCount();
@@ -31,4 +39,8 @@ namespace ReTouchClient
     LONG GetTestSubmitCount();
     LONG GetTestSubmitSucceeded();
     LONG GetLastTestSubmitStatus();
+
+    LONG GetWorkItemEnqueueCount();
+    LONG GetWorkItemRunCount();
+    LONG GetLastWorkItemContactCount();
 }
