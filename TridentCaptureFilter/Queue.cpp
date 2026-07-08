@@ -544,6 +544,15 @@ TridentEvtIoDeviceControl(
         stats->ReTouchClientLastTestSubmitStatus =
             ReTouchClient::GetLastTestSubmitStatus();
 
+        stats->ReTouchClientWorkItemEnqueueCount =
+            ReTouchClient::GetWorkItemEnqueueCount();
+
+        stats->ReTouchClientWorkItemRunCount =
+            ReTouchClient::GetWorkItemRunCount();
+
+        stats->ReTouchClientLastWorkItemContactCount =
+            ReTouchClient::GetLastWorkItemContactCount();
+
         RtlCopyMemory(
             stats->LastReadData,
             g_LastReadData,

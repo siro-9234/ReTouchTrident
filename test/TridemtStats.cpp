@@ -92,6 +92,10 @@ typedef struct _TRIDENT_STATS
     LONG ReTouchClientTestSubmitCount;
     LONG ReTouchClientTestSubmitSucceeded;
     LONG ReTouchClientLastTestSubmitStatus;
+
+    LONG ReTouchClientWorkItemEnqueueCount;
+    LONG ReTouchClientWorkItemRunCount;
+    LONG ReTouchClientLastWorkItemContactCount;
 } TRIDENT_STATS, * PTRIDENT_STATS;
 
 static BOOL ReadStatsFromDevice(const wchar_t* devicePath)
@@ -242,10 +246,12 @@ static BOOL ReadStatsFromDevice(const wchar_t* devicePath)
         wprintf(L"ReTouchClientLastOpenStatus:     0x%08X\n", stats.ReTouchClientLastOpenStatus);
 
         wprintf(L"ReTouchClientTestSubmitCount:    %ld\n", stats.ReTouchClientTestSubmitCount);
-
         wprintf(L"ReTouchClientTestSubmitSucceeded:%ld\n", stats.ReTouchClientTestSubmitSucceeded);
 
         wprintf(L"ReTouchClientLastTestSubmitStatus: 0x%08X\n", stats.ReTouchClientLastTestSubmitStatus);
+        wprintf(L"ReTouchClientWorkItemEnqueueCount: %ld\n", stats.ReTouchClientWorkItemEnqueueCount);
+        wprintf(L"ReTouchClientWorkItemRunCount:     %ld\n", stats.ReTouchClientWorkItemRunCount);
+        wprintf(L"ReTouchClientLastWorkItemContactCount: %ld\n", stats.ReTouchClientLastWorkItemContactCount);
     }
 
     wprintf(L"\n");

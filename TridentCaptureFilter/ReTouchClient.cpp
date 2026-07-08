@@ -18,12 +18,6 @@ namespace ReTouchClient
     struct RETOUCH_CLIENT_CONTEXT
     {
         HANDLE DeviceHandle;
-        WDFDEVICE Device;
-        WDFWORKITEM WorkItem;
-
-        RETOUCH_FRAME LatestFrame;
-        FAST_MUTEX FrameLock;
-        volatile LONG WorkItemQueued;
 
         volatile LONG InitializeCount;
         volatile LONG ShutdownCount;
@@ -87,11 +81,9 @@ namespace ReTouchClient
         );
     }
 
-    static
-        NTSTATUS
-        QueryInterface(
-            _Outptr_result_maybenull_ PWSTR* SymbolicLinkList
-        )
+    static NTSTATUS QueryInterface(
+        _Outptr_result_maybenull_ PWSTR* SymbolicLinkList
+    )
     {
         if (SymbolicLinkList == nullptr)
         {
@@ -125,11 +117,9 @@ namespace ReTouchClient
         return status;
     }
 
-    static
-        NTSTATUS
-        OpenFirstInterface(
-            _In_z_ PWSTR SymbolicLink
-        )
+    static NTSTATUS OpenFirstInterface(
+        _In_z_ PWSTR SymbolicLink
+    )
     {
         InterlockedIncrement(&g_Client.OpenCount);
 
@@ -195,9 +185,7 @@ namespace ReTouchClient
         return status;
     }
 
-    static
-        NTSTATUS
-        SubmitOneTestFrame()
+    static NTSTATUS SubmitOneTestFrame()
     {
         InterlockedIncrement(&g_Client.TestSubmitCount);
 
@@ -216,11 +204,9 @@ namespace ReTouchClient
         _In_ WDFDEVICE Device
     )
     {
+        UNREFERENCED_PARAMETER(Device);
+
         InterlockedIncrement(&g_Client.InitializeCount);
-
-        g_Client.Device = Device;
-
-        ExInitializeFastMutex(&g_Client.FrameLock);
 
         PWSTR symbolicLinkList = nullptr;
 

@@ -124,12 +124,15 @@
     <ClCompile Include="DriverEntry.cpp" />
     <ClCompile Include="Queue.cpp" />
     <ClCompile Include="ReTouchClient.cpp" />
-    <ClCompile Include="ReTouchClient.WorkItem.cpp" />
+    <ClCompile Include="ReTouchClient.WorkItem.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Device.h" />
     <ClInclude Include="Queue.h" />
     <ClInclude Include="ReTouchClient.h" />
+    <ClInclude Include="ReTouchClient.Internal.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

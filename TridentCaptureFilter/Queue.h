@@ -121,4 +121,8 @@ typedef struct _TRIDENT_STATS
     LONG ReTouchClientTestSubmitCount;
     LONG ReTouchClientTestSubmitSucceeded;
     LONG ReTouchClientLastTestSubmitStatus;
+
+    LONG ReTouchClientWorkItemEnqueueCount;
+    LONG ReTouchClientWorkItemRunCount;
+    LONG ReTouchClientLastWorkItemContactCount;
 } TRIDENT_STATS, * PTRIDENT_STATS;
