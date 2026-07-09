@@ -5,7 +5,13 @@
     <Platform Name="x64" />
   </Configurations>
   <Folder Name="/docs/" />
+  <Project Path="ReTouchCursorGuard/ReTouchCursorGuard.vcxproj" Id="b41fd244-5bad-4358-9a07-6554793a24ab">
+    <Platform Project="x64" />
+  </Project>
   <Project Path="ReTouchCursorProbe/ReTouchCursorProbe.vcxproj" Id="655f067d-cfea-4ac3-8ed6-19a758d78b36">
+    <Platform Project="x64" />
+  </Project>
+  <Project Path="ReTouchPointerProbe/ReTouchPointerProbe.vcxproj" Id="19c565d7-3c3e-4c45-95a8-4af47170a90b">
     <Platform Project="x64" />
   </Project>
   <Project Path="ReTouchStats/ReTouchStats.vcxproj" Id="5f562c62-0575-46b4-b4a2-735ff9804249">

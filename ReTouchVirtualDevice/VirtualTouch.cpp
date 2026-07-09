@@ -1,6 +1,7 @@
 #include "VirtualTouch.h"
 #include "HidDescriptor.h"
 #include "ReTouchStats.h"
+#include "ReTouchLogger.h"
 
 #include <ntstrsafe.h>
 
@@ -118,81 +119,6 @@ ReTouchLogWorkItem(
     }
 
     WdfObjectDelete(WorkItem);
-}
-
-static VOID
-ReTouchLogTouchSubmit(
-    _In_ BOOLEAN IsTouchDown,
-    _In_ USHORT X,
-    _In_ USHORT Y,
-    _In_ UCHAR ContactId
-)
-{
-    NTSTATUS status;
-    LARGE_INTEGER counter;
-    LARGE_INTEGER frequency;
-    WDF_OBJECT_ATTRIBUTES attributes;
-    WDF_WORKITEM_CONFIG workItemConfig;
-    WDFWORKITEM workItem = NULL;
-    PRETOUCH_LOG_WORKITEM_CONTEXT logContext;
-
-    if (g_ReTouchDevice == nullptr)
-    {
-        return;
-    }
-
-    counter = KeQueryPerformanceCounter(&frequency);
-
-    WDF_WORKITEM_CONFIG_INIT(
-        &workItemConfig,
-        ReTouchLogWorkItem
-    );
-
-    WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(
-        &attributes,
-        RETOUCH_LOG_WORKITEM_CONTEXT
-    );
-
-    attributes.ParentObject = g_ReTouchDevice;
-
-    status = WdfWorkItemCreate(
-        &workItemConfig,
-        &attributes,
-        &workItem
-    );
-
-    if (!NT_SUCCESS(status))
-    {
-        return;
-    }
-
-    logContext = ReTouchGetLogWorkItemContext(workItem);
-
-    if (logContext == nullptr)
-    {
-        WdfObjectDelete(workItem);
-        return;
-    }
-
-    status = RtlStringCbPrintfA(
-        logContext->Line,
-        sizeof(logContext->Line),
-        "QPC=%lld Freq=%lld Event=%s X=%hu Y=%hu ContactId=%hhu\r\n",
-        counter.QuadPart,
-        frequency.QuadPart,
-        IsTouchDown ? "TouchDownSubmitFrame" : "TouchUpSubmitFrame",
-        X,
-        Y,
-        ContactId
-    );
-
-    if (!NT_SUCCESS(status))
-    {
-        WdfObjectDelete(workItem);
-        return;
-    }
-
-    WdfWorkItemEnqueue(workItem);
 }
 
 VOID
@@ -486,6 +412,16 @@ NTSTATUS VirtualTouch::SubmitFrame(
         report.X = scaledX;
         report.Y = scaledY;
         report.ContactCount = 1;
+
+        if (previousTouchDown == 0)
+        {
+            ReTouchLoggerLogTouchTransition(
+                TRUE,
+                report.X,
+                report.Y,
+                report.ContactId
+            );
+        }
     }
     else
     {
@@ -505,6 +441,16 @@ NTSTATUS VirtualTouch::SubmitFrame(
         report.X = static_cast<USHORT>(lastX);
         report.Y = static_cast<USHORT>(lastY);
         report.ContactCount = 0;
+
+        if (previousTouchDown != 0)
+        {
+            ReTouchLoggerLogTouchTransition(
+                FALSE,
+                report.X,
+                report.Y,
+                report.ContactId
+            );
+        }
     }
 
     ReTouchStatsRecordTouchReport(
@@ -520,13 +466,6 @@ NTSTATUS VirtualTouch::SubmitFrame(
     packet.reportBuffer = reinterpret_cast<PUCHAR>(&report);
     packet.reportBufferLen = sizeof(report);
     packet.reportId = RETOUCH_REPORT_ID_TOUCH;
-
-    ReTouchLogTouchSubmit(
-        report.ContactCount > 0 ? TRUE : FALSE,
-        report.X,
-        report.Y,
-        report.ContactId
-    );
 
     NTSTATUS status = VhfReadReportSubmit(m_VhfHandle, &packet);
 
