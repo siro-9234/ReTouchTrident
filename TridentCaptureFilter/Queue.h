@@ -27,9 +27,13 @@ EVT_WDF_REQUEST_COMPLETION_ROUTINE TridentReadCompletion;
 
 #define IOCTL_TRIDENT_GET_STATS \
     CTL_CODE(FILE_DEVICE_UNKNOWN, 0x801, METHOD_BUFFERED, FILE_READ_DATA)
+
 #define TRIDENT_OBS_IOCTL_HID_GET_DEVICE_ATTRIBUTES 0x000B01A8
 #define TRIDENT_OBS_IOCTL_HID_GET_REPORT_DESCRIPTOR 0x000B01BE
+
 #define RETOUCH_MAX_CONTACTS 10
+
+#pragma pack(push, 1)
 
 typedef struct _RETOUCH_CONTACT
 {
@@ -37,14 +41,17 @@ typedef struct _RETOUCH_CONTACT
     UCHAR IsDown;
     USHORT X;
     USHORT Y;
+
 } RETOUCH_CONTACT, * PRETOUCH_CONTACT;
 
 typedef struct _RETOUCH_FRAME
 {
     UCHAR ContactCount;
     RETOUCH_CONTACT Contacts[RETOUCH_MAX_CONTACTS];
+
 } RETOUCH_FRAME, * PRETOUCH_FRAME;
 
+#pragma pack(pop)
 
 typedef struct _TRIDENT_STATS
 {
@@ -125,7 +132,7 @@ typedef struct _TRIDENT_STATS
     LONG ReTouchClientWorkItemEnqueueCount;
     LONG ReTouchClientWorkItemRunCount;
     LONG ReTouchClientLastWorkItemContactCount;
-    
+
     LONG ReTouchSubmitAttemptCount;
     LONG ReTouchSubmitContextNullCount;
     LONG ReTouchSubmitCompletedCount;
@@ -144,4 +151,5 @@ typedef struct _TRIDENT_STATS
     ULONG StatsWdmDeviceObjectLow;
     ULONG CompletionPhysicalDeviceObjectLow;
     ULONG CompletionWdmDeviceObjectLow;
+
 } TRIDENT_STATS, * PTRIDENT_STATS;

@@ -226,8 +226,8 @@ TridentReadReportCompletion(
 
     WdfRequestCompleteWithInformation(
         Request,
-        Params->IoStatus.Status,
-        Params->IoStatus.Information
+        STATUS_SUCCESS,
+        0
     );
 }
 
@@ -247,35 +247,33 @@ TridentEvtIoInternalDeviceControl(
     InterlockedIncrement(&g_InternalIoctlCount);
     InterlockedExchange(&g_LastInternalIoctlCode, static_cast<LONG>(IoControlCode));
 
+    if (IoControlCode == IOCTL_HID_READ_REPORT)
+    {
+        InterlockedIncrement(&g_ReadReportReceived);
+        InterlockedIncrement(&g_ReadReportCompleted);
+
+        WdfRequestCompleteWithInformation(
+            Request,
+            STATUS_SUCCESS,
+            0
+        );
+
+        return;
+    }
+
     WDFDEVICE device = WdfIoQueueGetDevice(Queue);
     WDFIOTARGET target = WdfDeviceGetIoTarget(device);
 
     WdfRequestFormatRequestUsingCurrentType(Request);
 
-    if (IoControlCode == IOCTL_HID_READ_REPORT)
-    {
-        InterlockedIncrement(&g_ReadReportReceived);
-
-        WdfRequestSetCompletionRoutine(
-            Request,
-            TridentReadReportCompletion,
-            nullptr
-        );
-
-        if (!WdfRequestSend(Request, target, WDF_NO_SEND_OPTIONS))
-        {
-            NTSTATUS status = WdfRequestGetStatus(Request);
-            InterlockedIncrement(&g_ReadReportSendFailed);
-            WdfRequestComplete(Request, status);
-        }
-
-        return;
-    }
-
     if (!WdfRequestSend(Request, target, WDF_NO_SEND_OPTIONS))
     {
         NTSTATUS status = WdfRequestGetStatus(Request);
-        WdfRequestComplete(Request, status);
+
+        WdfRequestComplete(
+            Request,
+            status
+        );
     }
 }
 
@@ -601,9 +599,7 @@ TridentReadCompletion(
                 InterlockedExchange(&globalStats->LastDecodedTipSwitch, point.TipSwitch ? 1 : 0);
 
                 RETOUCH_FRAME frame = {};
-
                 frame.ContactCount = point.TipSwitch ? 1 : 0;
-
                 frame.Contacts[0].Id = 0;
                 frame.Contacts[0].IsDown = point.TipSwitch ? 1 : 0;
                 frame.Contacts[0].X = point.X;
@@ -629,31 +625,6 @@ TridentReadCompletion(
                     PDEVICE_CONTEXT deviceContext =
                         DeviceGetContext(completionDevice);
 
-                    InterlockedExchange(
-                        &g_LastCompletionDeviceInstanceId,
-                        deviceContext->DeviceInstanceId
-                    );
-
-                    InterlockedExchange(
-                        &g_LastCompletionClientPointerLow,
-                        static_cast<LONG>(PtrToUlong(&deviceContext->ReTouchClient))
-                    );
-
-                    InterlockedExchange(
-                        &g_LastSubmitClientInstanceId,
-                        deviceContext->ReTouchClient.ClientInstanceId
-                    );
-
-                    InterlockedExchange(
-                        &g_LastCompletionPhysicalDeviceObjectLow,
-                        deviceContext->PhysicalDeviceObjectLow
-                    );
-
-                    InterlockedExchange(
-                        &g_LastCompletionWdmDeviceObjectLow,
-                        deviceContext->WdmDeviceObjectLow
-                    );
-
                     TridentGlobalRecordFilterActivity(
                         deviceContext->DeviceInstanceId,
                         deviceContext->ReTouchClient.ClientInstanceId,
@@ -673,16 +644,19 @@ TridentReadCompletion(
                     InterlockedIncrement(&globalStats->SubmitCompletedCount);
                     InterlockedExchange(&g_LastReTouchSubmitStatus, submitStatus);
                 }
-
-                RtlZeroMemory(
-                    buffer,
-                    copyLength
-                );
             }
             else
             {
                 InterlockedExchange(&g_LastDecodeTouchReportFailed, 1);
             }
+
+            WdfRequestCompleteWithInformation(
+                Request,
+                STATUS_SUCCESS,
+                0
+            );
+
+            return;
         }
     }
 

@@ -4,6 +4,12 @@
 
 VHFHANDLE VirtualTouch::m_VhfHandle = nullptr;
 
+static volatile LONG g_NextContactId = 0;
+static volatile LONG g_CurrentContactId = 0;
+static volatile LONG g_PreviousTouchDown = 0;
+static volatile LONG g_LastTouchX = 0;
+static volatile LONG g_LastTouchY = 0;
+
 EVT_VHF_ASYNC_OPERATION EvtVhfGetFeature;
 
 VOID
@@ -37,7 +43,26 @@ EvtVhfGetFeature(
                 );
 
         report->ReportId = RETOUCH_REPORT_ID_MAX_COUNT;
-        report->MaximumContactCount = RETOUCH_MAX_CONTACTS;
+        report->MaximumContactCount = 1;
+
+        status = STATUS_SUCCESS;
+    }
+    else if (HidTransferPacket != nullptr &&
+        HidTransferPacket->reportId == RETOUCH_REPORT_ID_CERT_BLOB &&
+        HidTransferPacket->reportBuffer != nullptr &&
+        HidTransferPacket->reportBufferLen >= sizeof(RETOUCH_CERTIFICATION_BLOB_FEATURE_REPORT))
+    {
+        PRETOUCH_CERTIFICATION_BLOB_FEATURE_REPORT report =
+            reinterpret_cast<PRETOUCH_CERTIFICATION_BLOB_FEATURE_REPORT>(
+                HidTransferPacket->reportBuffer
+                );
+
+        RtlZeroMemory(
+            report,
+            sizeof(RETOUCH_CERTIFICATION_BLOB_FEATURE_REPORT)
+        );
+
+        report->ReportId = RETOUCH_REPORT_ID_CERT_BLOB;
 
         status = STATUS_SUCCESS;
     }
@@ -125,6 +150,40 @@ NTSTATUS VirtualTouch::SubmitTouch(
     return SubmitFrame(&frame);
 }
 
+static USHORT
+ReTouchScaleCoordinateTo4095(
+    _In_ USHORT Value,
+    _In_ USHORT Minimum,
+    _In_ USHORT Maximum
+)
+{
+    if (Maximum <= Minimum)
+    {
+        return 0;
+    }
+
+    if (Value <= Minimum)
+    {
+        return 0;
+    }
+
+    if (Value >= Maximum)
+    {
+        return 4095;
+    }
+
+    ULONG scaled =
+        ((static_cast<ULONG>(Value - Minimum)) * 4095UL) /
+        static_cast<ULONG>(Maximum - Minimum);
+
+    if (scaled > 4095UL)
+    {
+        scaled = 4095UL;
+    }
+
+    return static_cast<USHORT>(scaled);
+}
+
 NTSTATUS VirtualTouch::SubmitFrame(
     PRETOUCH_FRAME frame
 )
@@ -152,40 +211,116 @@ NTSTATUS VirtualTouch::SubmitFrame(
     RETOUCH_TOUCH_REPORT report = {};
     report.ReportId = RETOUCH_REPORT_ID_TOUCH;
     report.ScanTime = 0;
+    report.Width = 1;
+    report.Height = 1;
+    report.Azimuth = 0;
 
-    UCHAR activeCount = 0;
+    BOOLEAN isTouching =
+        frame->ContactCount > 0 ? TRUE : FALSE;
 
-    if (frame->ContactCount > 0)
+    LONG previousTouchDown =
+        InterlockedCompareExchange(
+            &g_PreviousTouchDown,
+            0,
+            0
+        );
+
+    if (isTouching)
     {
-        report.Contacts[0].Flags =
-            RETOUCH_FLAG_TIP_SWITCH |
-            RETOUCH_FLAG_IN_RANGE |
-            RETOUCH_FLAG_CONFIDENCE;
+        if (previousTouchDown == 0)
+        {
+            LONG nextId =
+                InterlockedIncrement(&g_NextContactId);
 
-        report.Contacts[0].ContactId = frame->Contacts[0].Id;
-        report.Contacts[0].X = frame->Contacts[0].X;
-        report.Contacts[0].Y = frame->Contacts[0].Y;
+            InterlockedExchange(
+                &g_CurrentContactId,
+                nextId & 0x7F
+            );
+        }
 
-        activeCount = 1;
+        InterlockedExchange(
+            &g_PreviousTouchDown,
+            1
+        );
+
+        LONG currentId =
+            InterlockedCompareExchange(
+                &g_CurrentContactId,
+                0,
+                0
+            );
+
+        USHORT scaledX =
+            ReTouchScaleCoordinateTo4095(
+                frame->Contacts[0].X,
+                196,
+                16241
+            );
+
+        USHORT scaledY =
+            ReTouchScaleCoordinateTo4095(
+                frame->Contacts[0].Y,
+                227,
+                9364
+            );
+
+        InterlockedExchange(
+            &g_LastTouchX,
+            scaledX
+        );
+
+        InterlockedExchange(
+            &g_LastTouchY,
+            scaledY
+        );
+
+        report.Flags = RETOUCH_FLAG_TIP_SWITCH;
+        report.ContactId = static_cast<UCHAR>(currentId & 0x7F);
+        report.X = scaledX;
+        report.Y = scaledY;
+        report.ContactCount = 1;
     }
     else
     {
-        report.Contacts[0].Flags = 0;
-        report.Contacts[0].ContactId = 0;
-        report.Contacts[0].X = frame->Contacts[0].X;
-        report.Contacts[0].Y = frame->Contacts[0].Y;
+        InterlockedExchange(
+            &g_PreviousTouchDown,
+            0
+        );
 
-        activeCount = 0;
+        LONG currentId =
+            InterlockedCompareExchange(
+                &g_CurrentContactId,
+                0,
+                0
+            );
+
+        LONG lastX =
+            InterlockedCompareExchange(
+                &g_LastTouchX,
+                0,
+                0
+            );
+
+        LONG lastY =
+            InterlockedCompareExchange(
+                &g_LastTouchY,
+                0,
+                0
+            );
+
+        report.Flags = 0;
+        report.ContactId = static_cast<UCHAR>(currentId & 0x7F);
+        report.X = static_cast<USHORT>(lastX);
+        report.Y = static_cast<USHORT>(lastY);
+        report.ContactCount = 0;
     }
 
-    report.ContactCount = activeCount;
-
     ReTouchStatsRecordTouchReport(
-        activeCount,
-        report.Contacts[0].Flags,
-        report.Contacts[0].ContactId,
-        report.Contacts[0].X,
-        report.Contacts[0].Y,
+        report.ContactCount,
+        report.Flags,
+        report.ContactId,
+        report.X,
+        report.Y,
         report.ContactCount
     );
 

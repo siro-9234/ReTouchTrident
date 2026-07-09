@@ -8,7 +8,7 @@ Class       = HIDClass
 ClassGuid   = {745A17A0-74D3-11D0-B6FE-00A0C90F57DA}
 Provider    = %ManufacturerName%
 CatalogFile = TridentCaptureFilter.cat
-DriverVer   = 07/06/2025,0.9.0.0
+DriverVer   = 07/08/2026,0.7.0.1
 PnpLockdown = 1
 
 [DestinationDirs]
@@ -27,6 +27,7 @@ TridentCaptureFilter.sys = 1
 [Standard.NTamd64.10.0...18362]
 %TridentCaptureFilter.DeviceDesc% = TridentCaptureFilter_Device, HID\VID_27C0&PID_0859&MI_00&Col01
 %TridentCaptureFilter.DeviceDesc% = TridentCaptureFilter_Device, HID\VID_27C0&PID_0859&MI_01
+%TridentCaptureFilter.DeviceDesc% = TridentCaptureFilter_Device, HID\VID_27C0&PID_0859&MI_02
 
 [TridentCaptureFilter_Device.NT]
 CopyFiles = TridentCaptureFilter_CopyFiles
