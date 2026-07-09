@@ -197,6 +197,80 @@ static void HandleRawInput(LPARAM lParam)
                         g_LastPhysicalCursorPosition.y
                     );
 
+                    CURSORINFO cursorInfo = {};
+                    cursorInfo.cbSize = sizeof(CURSORINFO);
+
+                    if (GetCursorInfo(&cursorInfo))
+                    {
+                        PrintQpcPrefix();
+
+                        std::printf(
+                            "PostCorrection CursorFlags=0x%08lX CursorPos=(%ld,%ld) hCursor=%p\n",
+                            cursorInfo.flags,
+                            cursorInfo.ptScreenPos.x,
+                            cursorInfo.ptScreenPos.y,
+                            cursorInfo.hCursor
+                        );
+                    }
+                    else
+                    {
+                        PrintQpcPrefix();
+                        std::printf(
+                            "GetCursorInfo failed. GetLastError=%lu\n",
+                            GetLastError()
+                        );
+                    }
+
+                    INPUT input = {};
+                    input.type = INPUT_MOUSE;
+                    input.mi.dx = 1;
+                    input.mi.dy = 0;
+                    input.mi.dwFlags = MOUSEEVENTF_MOVE;
+
+                    UINT sent = SendInput(
+                        1,
+                        &input,
+                        sizeof(INPUT)
+                    );
+
+                    PrintQpcPrefix();
+
+                    std::printf(
+                        "SendInputTest dx=1 dy=0 sent=%u GetLastError=%lu\n",
+                        sent,
+                        GetLastError()
+                    );
+
+                    SetCursorPos(
+                        g_LastPhysicalCursorPosition.x,
+                        g_LastPhysicalCursorPosition.y
+                    );
+
+                    CURSORINFO finalCursorInfo = {};
+                    finalCursorInfo.cbSize = sizeof(CURSORINFO);
+
+                    if (GetCursorInfo(&finalCursorInfo))
+                    {
+                        PrintQpcPrefix();
+
+                        std::printf(
+                            "FinalCorrection CursorFlags=0x%08lX CursorPos=(%ld,%ld) hCursor=%p\n",
+                            finalCursorInfo.flags,
+                            finalCursorInfo.ptScreenPos.x,
+                            finalCursorInfo.ptScreenPos.y,
+                            finalCursorInfo.hCursor
+                        );
+                    }
+                    else
+                    {
+                        PrintQpcPrefix();
+
+                        std::printf(
+                            "FinalCorrection GetCursorInfo failed. GetLastError=%lu\n",
+                            GetLastError()
+                        );
+                    }
+
                     GetCursorPos(&currentCursor);
                 }
 
