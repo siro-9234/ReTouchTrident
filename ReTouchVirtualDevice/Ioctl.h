@@ -34,6 +34,9 @@ typedef struct _RETOUCH_STATS
     LONG GetFeatureCount;
     LONG LastGetFeatureReportId;
 
+    LONG SetFeatureCount;
+    LONG LastSetFeatureReportId;
+
     LONG WdmDeviceObjectNull;
 
     LONG LastActiveContactCount;

@@ -5,6 +5,9 @@
     <Platform Name="x64" />
   </Configurations>
   <Folder Name="/docs/" />
+  <Project Path="ReTouchCursorProbe/ReTouchCursorProbe.vcxproj" Id="655f067d-cfea-4ac3-8ed6-19a758d78b36">
+    <Platform Project="x64" />
+  </Project>
   <Project Path="ReTouchStats/ReTouchStats.vcxproj" Id="5f562c62-0575-46b4-b4a2-735ff9804249">
     <Platform Project="x64" />
   </Project>

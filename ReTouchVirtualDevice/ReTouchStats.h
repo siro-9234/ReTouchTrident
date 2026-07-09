@@ -39,6 +39,10 @@ VOID ReTouchStatsRecordGetFeature(
     _In_ UCHAR ReportId
 );
 
+VOID ReTouchStatsRecordSetFeature(
+    _In_ UCHAR ReportId
+);
+
 VOID ReTouchStatsRecordWdmDeviceObjectNull(
     _In_ BOOLEAN IsNull
 );

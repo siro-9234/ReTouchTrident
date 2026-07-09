@@ -4,7 +4,7 @@ Class=System
 ClassGuid={4d36e97d-e325-11ce-bfc1-08002be10318}
 Provider=%ManufacturerName%
 CatalogFile=TouchVirtualDevice.cat
-DriverVer   = 07/06/2025,2.1.0.12
+DriverVer   = 07/06/2025,2.1.1.14
 PnpLockdown=1
 
 [DestinationDirs]

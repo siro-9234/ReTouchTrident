@@ -33,6 +33,9 @@ static volatile LONG g_ReceivedFirstContactIsDown = 0;
 static volatile LONG g_ReceivedFirstContactX = 0;
 static volatile LONG g_ReceivedFirstContactY = 0;
 
+static volatile LONG g_SetFeatureCount = 0;
+static volatile LONG g_LastSetFeatureReportId = 0;
+
 VOID ReTouchStatsRecordDeviceAdd()
 {
     InterlockedIncrement(&g_DeviceAddCount);
@@ -126,6 +129,14 @@ VOID ReTouchStatsRecordGetFeature(
     InterlockedExchange(&g_LastGetFeatureReportId, ReportId);
 }
 
+VOID ReTouchStatsRecordSetFeature(
+    _In_ UCHAR ReportId
+)
+{
+    InterlockedIncrement(&g_SetFeatureCount);
+    InterlockedExchange(&g_LastSetFeatureReportId, ReportId);
+}
+
 VOID ReTouchStatsRecordWdmDeviceObjectNull(
     _In_ BOOLEAN IsNull
 )
@@ -216,4 +227,10 @@ VOID ReTouchStatsSnapshot(
 
     Stats->ReceivedFirstContactY =
         InterlockedCompareExchange(&g_ReceivedFirstContactY, 0, 0);
+
+    Stats->SetFeatureCount =
+        InterlockedCompareExchange(&g_SetFeatureCount, 0, 0);
+
+    Stats->LastSetFeatureReportId =
+        InterlockedCompareExchange(&g_LastSetFeatureReportId, 0, 0);
 }

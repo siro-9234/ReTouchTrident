@@ -3,6 +3,7 @@
 #include "VirtualTouch.h"
 #include "Queue.h"
 #include "DeviceInterface.h"
+#include "ReTouchLogger.h"
 
 VOID
 ReTouchEvtDeviceCleanup(
@@ -14,6 +15,8 @@ ReTouchEvtDeviceCleanup(
     ReTouchStatsRecordDeviceCleanup();
 
     VirtualTouch::Shutdown();
+
+    ReTouchLoggerShutdown();
 }
 
 NTSTATUS
@@ -55,6 +58,8 @@ ReTouchEvtDeviceAdd(
         return status;
     }
 
+    ReTouchLoggerInitialize(device);
+
     status = WdfDeviceCreateDeviceInterface(
         device,
         &GUID_DEVINTERFACE_RETOUCH,
@@ -63,6 +68,7 @@ ReTouchEvtDeviceAdd(
 
     if (!NT_SUCCESS(status))
     {
+        ReTouchLoggerShutdown();
         return status;
     }
 
@@ -70,12 +76,19 @@ ReTouchEvtDeviceAdd(
 
     if (!NT_SUCCESS(status))
     {
+        ReTouchLoggerShutdown();
         return status;
     }
 
     status = VirtualTouch::Initialize(device);
 
     ReTouchStatsRecordVirtualTouchInitialize(status);
+
+    if (!NT_SUCCESS(status))
+    {
+        ReTouchLoggerShutdown();
+        return status;
+    }
 
     return STATUS_SUCCESS;
 }

@@ -35,6 +35,9 @@ typedef struct _RETOUCH_STATS
     LONG GetFeatureCount;
     LONG LastGetFeatureReportId;
 
+    LONG SetFeatureCount;
+    LONG LastSetFeatureReportId;
+
     LONG WdmDeviceObjectNull;
 
     LONG LastActiveContactCount;
@@ -111,6 +114,9 @@ static BOOL ReadStatsFromDevice(const wchar_t* devicePath)
 
     wprintf(L"GetFeatureCount:                 %ld\n", stats.GetFeatureCount);
     wprintf(L"LastGetFeatureReportId:          %ld\n", stats.LastGetFeatureReportId);
+
+    wprintf(L"SetFeatureCount:                  %ld\n", stats.SetFeatureCount);
+    wprintf(L"LastSetFeatureReportId:           %ld\n", stats.LastSetFeatureReportId);
 
     wprintf(L"WdmDeviceObjectNull:             %ld\n", stats.WdmDeviceObjectNull);
 
