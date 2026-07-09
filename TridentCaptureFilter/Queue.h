@@ -125,4 +125,23 @@ typedef struct _TRIDENT_STATS
     LONG ReTouchClientWorkItemEnqueueCount;
     LONG ReTouchClientWorkItemRunCount;
     LONG ReTouchClientLastWorkItemContactCount;
+    
+    LONG ReTouchSubmitAttemptCount;
+    LONG ReTouchSubmitContextNullCount;
+    LONG ReTouchSubmitCompletedCount;
+    LONG LastReTouchSubmitStatus;
+
+    ULONG ReTouchClientPointerLow;
+    ULONG QueueClientPointerLow;
+
+    LONG StatsDeviceInstanceId;
+    LONG CompletionDeviceInstanceId;
+
+    LONG StatsClientInstanceId;
+    LONG SubmitClientInstanceId;
+
+    ULONG StatsPhysicalDeviceObjectLow;
+    ULONG StatsWdmDeviceObjectLow;
+    ULONG CompletionPhysicalDeviceObjectLow;
+    ULONG CompletionWdmDeviceObjectLow;
 } TRIDENT_STATS, * PTRIDENT_STATS;

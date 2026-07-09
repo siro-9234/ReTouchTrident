@@ -36,6 +36,20 @@ typedef struct _RETOUCH_STATS
 
     LONG WdmDeviceObjectNull;
 
+    LONG LastActiveContactCount;
+    LONG LastFirstContactFlags;
+    LONG LastFirstContactId;
+    LONG LastFirstContactX;
+    LONG LastFirstContactY;
+    LONG LastReportContactCount;
+
+    LONG ReceivedSubmitFrameIoctlCount;
+    LONG ReceivedContactCount;
+    LONG ReceivedFirstContactId;
+    LONG ReceivedFirstContactIsDown;
+    LONG ReceivedFirstContactX;
+    LONG ReceivedFirstContactY;
+
 } RETOUCH_STATS, * PRETOUCH_STATS;
 
 typedef struct _RETOUCH_CONTACT

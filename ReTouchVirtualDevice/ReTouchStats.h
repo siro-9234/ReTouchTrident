@@ -22,6 +22,19 @@ VOID ReTouchStatsRecordSubmitFrame(
     _In_ UCHAR ContactCount
 );
 
+VOID ReTouchStatsRecordTouchReport(
+    _In_ UCHAR ActiveContactCount,
+    _In_ UCHAR FirstContactFlags,
+    _In_ UCHAR FirstContactId,
+    _In_ USHORT FirstContactX,
+    _In_ USHORT FirstContactY,
+    _In_ UCHAR ReportContactCount
+);
+
+VOID ReTouchStatsRecordReceivedFrame(
+    _In_opt_ PRETOUCH_FRAME Frame
+);
+
 VOID ReTouchStatsRecordGetFeature(
     _In_ UCHAR ReportId
 );

@@ -32,7 +32,9 @@ EvtVhfGetFeature(
         HidTransferPacket->reportBufferLen >= sizeof(RETOUCH_MAX_COUNT_FEATURE_REPORT))
     {
         PRETOUCH_MAX_COUNT_FEATURE_REPORT report =
-            (PRETOUCH_MAX_COUNT_FEATURE_REPORT)HidTransferPacket->reportBuffer;
+            reinterpret_cast<PRETOUCH_MAX_COUNT_FEATURE_REPORT>(
+                HidTransferPacket->reportBuffer
+                );
 
         report->ReportId = RETOUCH_REPORT_ID_MAX_COUNT;
         report->MaximumContactCount = RETOUCH_MAX_CONTACTS;
@@ -127,14 +129,23 @@ NTSTATUS VirtualTouch::SubmitFrame(
     PRETOUCH_FRAME frame
 )
 {
-
     if (m_VhfHandle == nullptr)
     {
+        ReTouchStatsRecordSubmitFrame(
+            STATUS_DEVICE_NOT_READY,
+            0
+        );
+
         return STATUS_DEVICE_NOT_READY;
     }
 
     if (frame == nullptr)
     {
+        ReTouchStatsRecordSubmitFrame(
+            STATUS_INVALID_PARAMETER,
+            0
+        );
+
         return STATUS_INVALID_PARAMETER;
     }
 
@@ -144,39 +155,53 @@ NTSTATUS VirtualTouch::SubmitFrame(
 
     UCHAR activeCount = 0;
 
-    for (UCHAR i = 0; i < RETOUCH_MAX_CONTACTS; i++)
+    if (frame->ContactCount > 0)
     {
-        report.Contacts[i].ContactId = frame->Contacts[i].Id;
-        report.Contacts[i].X = frame->Contacts[i].X;
-        report.Contacts[i].Y = frame->Contacts[i].Y;
+        report.Contacts[0].Flags =
+            RETOUCH_FLAG_TIP_SWITCH |
+            RETOUCH_FLAG_IN_RANGE |
+            RETOUCH_FLAG_CONFIDENCE;
 
-        if (frame->Contacts[i].IsDown != 0)
-        {
-            report.Contacts[i].Flags =
-                RETOUCH_FLAG_TIP_SWITCH |
-                RETOUCH_FLAG_IN_RANGE |
-                RETOUCH_FLAG_CONFIDENCE;
+        report.Contacts[0].ContactId = frame->Contacts[0].Id;
+        report.Contacts[0].X = frame->Contacts[0].X;
+        report.Contacts[0].Y = frame->Contacts[0].Y;
 
-            activeCount++;
-        }
-        else
-        {
-            report.Contacts[i].Flags = 0;
-        }
+        activeCount = 1;
+    }
+    else
+    {
+        report.Contacts[0].Flags = 0;
+        report.Contacts[0].ContactId = 0;
+        report.Contacts[0].X = frame->Contacts[0].X;
+        report.Contacts[0].Y = frame->Contacts[0].Y;
+
+        activeCount = 0;
     }
 
     report.ContactCount = activeCount;
 
+    ReTouchStatsRecordTouchReport(
+        activeCount,
+        report.Contacts[0].Flags,
+        report.Contacts[0].ContactId,
+        report.Contacts[0].X,
+        report.Contacts[0].Y,
+        report.ContactCount
+    );
+
     HID_XFER_PACKET packet = {};
-    packet.reportBuffer = (PUCHAR)&report;
+    packet.reportBuffer = reinterpret_cast<PUCHAR>(&report);
     packet.reportBufferLen = sizeof(report);
     packet.reportId = RETOUCH_REPORT_ID_TOUCH;
 
-    NTSTATUS status = VhfReadReportSubmit(m_VhfHandle, &packet);
+    NTSTATUS status = VhfReadReportSubmit(
+        m_VhfHandle,
+        &packet
+    );
 
     ReTouchStatsRecordSubmitFrame(
         status,
-        activeCount
+        report.ContactCount
     );
 
     return status;

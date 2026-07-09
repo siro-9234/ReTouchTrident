@@ -1,107 +1,70 @@
 ﻿#include <windows.h>
-#include <setupapi.h>
-#include <initguid.h>
 #include <stdio.h>
 
-#pragma comment(lib, "setupapi.lib")
+#define IOCTL_TRIDENT_GET_GLOBAL_STATS \
+    CTL_CODE(FILE_DEVICE_UNKNOWN, 0x901, METHOD_BUFFERED, FILE_READ_DATA)
 
-// {7C3A92D8-6C4D-4D8E-9F35-123456789ABC}
-DEFINE_GUID(
-    GUID_DEVINTERFACE_TRIDENT_CAPTURE,
-    0x7c3a92d8, 0x6c4d, 0x4d8e,
-    0x9f, 0x35, 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc
-);
-
-#define IOCTL_TRIDENT_GET_STATS \
-    CTL_CODE(FILE_DEVICE_UNKNOWN, 0x801, METHOD_BUFFERED, FILE_READ_DATA)
-#define TRIDENT_OBS_IOCTL_HID_GET_DEVICE_ATTRIBUTES 0x000B01A8
-#define TRIDENT_OBS_IOCTL_HID_GET_REPORT_DESCRIPTOR 0x000B01BE
-
-typedef struct _TRIDENT_STATS
+typedef struct _TRIDENT_GLOBAL_STATS_SNAPSHOT
 {
-    LONG InternalIoctlCount;
-    LONG DeviceIoctlCount;
-    LONG GetStatsIoctlCount;
-    LONG ReadRequestCount;
+    LONG ControlDeviceCreateAttempt;
+    LONG ControlDeviceCreateSucceeded;
+    LONG ControlDeviceIoctlStatsCount;
 
-    LONG NonStatsDeviceIoctlCount;
-    LONG LastNonStatsDeviceIoctlCode;
-    LONG NonStatsDeviceIoctlCodes[8];
+    LONG LastDeviceInstanceId;
+    LONG LastClientInstanceId;
 
-    LONG HidGetDeviceAttributesCount;
-    LONG HidGetReportDescriptorCount;
+    LONG ReadCompletionCount;
+    LONG DecodeSuccessCount;
+    LONG SubmitAttemptCount;
+    LONG SubmitCompletedCount;
+    LONG SubmitFrameCount;
 
-    LONG LastInternalIoctlCode;
-    LONG LastDeviceIoctlCode;
+    LONG WorkItemEnqueueCount;
+    LONG WorkItemRunCount;
+    LONG LastWorkItemContactCount;
+    LONG LastSubmitFrameStatus;
+    LONG LastSendFrameStatus;
 
-    LONG ReadReportReceived;
-    LONG ReadReportCompleted;
-    LONG ReadReportSendFailed;
-    LONG ReadReportBufferRetrieved;
-    LONG ReadReportBufferRetrieveFailed;
-
-    LONG HidGetDeviceAttributesCompleted;
-    LONG HidGetDeviceAttributesFailed;
-    LONG LastHidGetDeviceAttributesStatus;
-
-    LONG HidGetReportDescriptorCompleted;
-    LONG HidGetReportDescriptorFailed;
-    LONG LastHidGetReportDescriptorStatus;
-
-    LONG LastCompletedDeviceIoctlCode;
-    LONG LastCompletedDeviceIoctlStatus;
-    LONG LastCompletedDeviceIoctlInformation;
-
-    LONG ReadCompleted;
-    LONG LastReadStatus;
-    LONG LastReadInformation;
+    LONG OpenInterfaceAttemptCount;
+    LONG OpenInterfaceSucceededCount;
+    LONG LastOpenInterfaceStatus;
+    LONG LastOpenedRootSystemNumber;
 
     LONG LastReadDataLength;
-    UCHAR LastReadData[64];
+    LONG LastRawByte0;
+    LONG LastRawByte1;
+    LONG LastRawByte2;
+    LONG LastRawByte3;
+    LONG LastRawByte4;
+    LONG LastRawByte5;
+    LONG LastRawByte6;
+    LONG LastRawByte7;
+    LONG LastRawByte8;
+    LONG LastRawByte9;
+    LONG LastRawByte10;
+    LONG LastRawByte11;
+    LONG LastRawByte12;
+    LONG LastRawByte13;
+    LONG LastRawByte14;
+    LONG LastRawByte15;
 
-    LONG LastDecodedTouchX;
-    LONG LastDecodedTouchY;
-    LONG LastDecodeTouchReportSucceeded;
-    LONG LastDecodeTouchReportFailed;
-
+    LONG TipCandidateByte0Bit0;
+    LONG TipCandidateByte1Bit0;
+    LONG TipCandidateByte2Bit0;
+    LONG TipCandidateByte6Bit0;
+    LONG TipCandidateByte7Bit0;
     LONG LastDecodedTipSwitch;
 
-    LONG LastFrameContactCount;
-    LONG LastFrameX;
-    LONG LastFrameY;
-    LONG LastFrameIsDown;
+    ULONG_PTR LastDeviceContextPointer;
+    ULONG_PTR LastClientPointer;
+    ULONG_PTR LastPhysicalDeviceObject;
+    ULONG_PTR LastWdmDeviceObject;
+} TRIDENT_GLOBAL_STATS_SNAPSHOT, * PTRIDENT_GLOBAL_STATS_SNAPSHOT;
 
-    LONG ReTouchInterfaceQueryCount;
-    LONG ReTouchInterfaceFound;
-    LONG LastReTouchInterfaceStatus;
-
-    LONG ReTouchClientInitializeCount;
-    LONG ReTouchClientShutdownCount;
-    LONG ReTouchClientSubmitFrameCount;
-    LONG ReTouchClientLastSubmitFrameStatus;
-    LONG ReTouchClientLastSubmitFrameContactCount;
-
-    LONG ReTouchClientQueryInterfaceCount;
-    LONG ReTouchClientInterfaceFound;
-    LONG ReTouchClientLastQueryInterfaceStatus;
-
-    LONG ReTouchClientOpenCount;
-    LONG ReTouchClientOpenSucceeded;
-    LONG ReTouchClientLastOpenStatus;
-
-    LONG ReTouchClientTestSubmitCount;
-    LONG ReTouchClientTestSubmitSucceeded;
-    LONG ReTouchClientLastTestSubmitStatus;
-
-    LONG ReTouchClientWorkItemEnqueueCount;
-    LONG ReTouchClientWorkItemRunCount;
-    LONG ReTouchClientLastWorkItemContactCount;
-} TRIDENT_STATS, * PTRIDENT_STATS;
-
-static BOOL ReadStatsFromDevice(const wchar_t* devicePath)
+static BOOL ReadGlobalStatsFromControlDevice()
 {
     HANDLE device = CreateFileW(
-        devicePath,
+        L"\\\\.\\TridentCaptureControl",
         GENERIC_READ | GENERIC_WRITE,
         FILE_SHARE_READ | FILE_SHARE_WRITE,
         nullptr,
@@ -116,12 +79,12 @@ static BOOL ReadStatsFromDevice(const wchar_t* devicePath)
         return FALSE;
     }
 
-    TRIDENT_STATS stats = {};
+    TRIDENT_GLOBAL_STATS_SNAPSHOT stats = {};
     DWORD bytesReturned = 0;
 
     BOOL ok = DeviceIoControl(
         device,
-        IOCTL_TRIDENT_GET_STATS,
+        IOCTL_TRIDENT_GET_GLOBAL_STATS,
         nullptr,
         0,
         &stats,
@@ -137,122 +100,72 @@ static BOOL ReadStatsFromDevice(const wchar_t* devicePath)
         return FALSE;
     }
 
-    wprintf(L"\n=== Trident Stats ===\n");
-    wprintf(L"BytesReturned:                     %lu\n", bytesReturned);
-    wprintf(L"InternalIoctlCount:                %ld\n", stats.InternalIoctlCount);
-    wprintf(L"ReadReportReceived:                %ld\n", stats.ReadReportReceived);
-    wprintf(L"ReadReportCompleted:               %ld\n", stats.ReadReportCompleted);
-    wprintf(L"ReadReportSendFailed:              %ld\n", stats.ReadReportSendFailed);
-    wprintf(L"ReadReportBufferRetrieved:         %ld\n", stats.ReadReportBufferRetrieved);
-    wprintf(L"ReadReportBufferRetrieveFailed:    %ld\n", stats.ReadReportBufferRetrieveFailed);
-    wprintf(L"DeviceIoctlCount:                  %ld\n", stats.DeviceIoctlCount);
-    wprintf(L"GetStatsIoctlCount:                %ld\n", stats.GetStatsIoctlCount);
-    wprintf(L"LastInternalIoctlCode:             0x%08X\n", stats.LastInternalIoctlCode);
-    wprintf(L"LastDeviceIoctlCode:               0x%08X\n", stats.LastDeviceIoctlCode);
-    wprintf(L"ReadRequestCount:                  %ld\n", stats.ReadRequestCount);
-    wprintf(L"NonStatsDeviceIoctlCount:          %ld\n", stats.NonStatsDeviceIoctlCount);
-    wprintf(L"LastNonStatsDeviceIoctlCode:       0x%08X\n", stats.LastNonStatsDeviceIoctlCode);
-    wprintf(L"NonStatsDeviceIoctlCodes:\n");
+    wprintf(L"\n=== Trident Global Stats ===\n");
+    wprintf(L"BytesReturned:                   %lu\n", bytesReturned);
 
-    for (int i = 0; i < 8; i++)
-    {
-        wprintf(
-            L"  [%d] 0x%08X\n",
-            i,
-            stats.NonStatsDeviceIoctlCodes[i]
-        );
-    }
+    wprintf(L"\n[Control Device]\n");
+    wprintf(L"ControlDeviceCreateAttempt:      %ld\n", stats.ControlDeviceCreateAttempt);
+    wprintf(L"ControlDeviceCreateSucceeded:    %ld\n", stats.ControlDeviceCreateSucceeded);
+    wprintf(L"ControlDeviceIoctlStatsCount:    %ld\n", stats.ControlDeviceIoctlStatsCount);
 
-    wprintf(L"HidGetDeviceAttributesCount:       %ld\n", stats.HidGetDeviceAttributesCount);
-    wprintf(L"HidGetReportDescriptorCount:       %ld\n", stats.HidGetReportDescriptorCount);
-    wprintf(L"HidGetDeviceAttributesCompleted:  %ld\n", stats.HidGetDeviceAttributesCompleted);
-    wprintf(L"HidGetDeviceAttributesFailed:     %ld\n", stats.HidGetDeviceAttributesFailed);
-    wprintf(L"LastHidGetDeviceAttributesStatus: 0x%08X\n", stats.LastHidGetDeviceAttributesStatus);
+    wprintf(L"\n[Last Active Filter]\n");
+    wprintf(L"LastDeviceInstanceId:            %ld\n", stats.LastDeviceInstanceId);
+    wprintf(L"LastClientInstanceId:            %ld\n", stats.LastClientInstanceId);
 
-    wprintf(L"HidGetReportDescriptorCompleted:  %ld\n", stats.HidGetReportDescriptorCompleted);
-    wprintf(L"HidGetReportDescriptorFailed:     %ld\n", stats.HidGetReportDescriptorFailed);
-    wprintf(L"LastHidGetReportDescriptorStatus: 0x%08X\n", stats.LastHidGetReportDescriptorStatus);
+    wprintf(L"\n[Counts]\n");
+    wprintf(L"ReadCompletionCount:             %ld\n", stats.ReadCompletionCount);
+    wprintf(L"DecodeSuccessCount:              %ld\n", stats.DecodeSuccessCount);
+    wprintf(L"SubmitAttemptCount:              %ld\n", stats.SubmitAttemptCount);
+    wprintf(L"SubmitCompletedCount:            %ld\n", stats.SubmitCompletedCount);
+    wprintf(L"SubmitFrameCount:                %ld\n", stats.SubmitFrameCount);
 
-    wprintf(L"LastCompletedDeviceIoctlCode:        0x%08X\n", stats.LastCompletedDeviceIoctlCode);
-    wprintf(L"LastCompletedDeviceIoctlStatus:      0x%08X\n", stats.LastCompletedDeviceIoctlStatus);
-    wprintf(L"LastCompletedDeviceIoctlInformation: %ld\n", stats.LastCompletedDeviceIoctlInformation);
+    wprintf(L"\n[WorkItem]\n");
+    wprintf(L"WorkItemEnqueueCount:            %ld\n", stats.WorkItemEnqueueCount);
+    wprintf(L"WorkItemRunCount:                %ld\n", stats.WorkItemRunCount);
+    wprintf(L"LastWorkItemContactCount:        %ld\n", stats.LastWorkItemContactCount);
+    wprintf(L"LastSubmitFrameStatus:           0x%08X\n", static_cast<ULONG>(stats.LastSubmitFrameStatus));
+    wprintf(L"LastSendFrameStatus:             0x%08X\n", static_cast<ULONG>(stats.LastSendFrameStatus));
 
-    wprintf(L"ReadCompleted:                    %ld\n", stats.ReadCompleted);
-    wprintf(L"LastReadStatus:                   0x%08X\n", stats.LastReadStatus);
-    wprintf(L"LastReadInformation:              %ld\n", stats.LastReadInformation);
+    wprintf(L"\n[Open ReTouch]\n");
+    wprintf(L"OpenInterfaceAttemptCount:       %ld\n", stats.OpenInterfaceAttemptCount);
+    wprintf(L"OpenInterfaceSucceededCount:     %ld\n", stats.OpenInterfaceSucceededCount);
+    wprintf(L"LastOpenInterfaceStatus:         0x%08X\n", static_cast<ULONG>(stats.LastOpenInterfaceStatus));
+    wprintf(L"LastOpenedRootSystemNumber:      %ld\n", stats.LastOpenedRootSystemNumber);
 
-    wprintf(L"LastReadDataLength:               %ld\n", stats.LastReadDataLength);
+    wprintf(L"\n[Raw HID]\n");
+    wprintf(L"LastReadDataLength:              %ld\n", stats.LastReadDataLength);
+    wprintf(L"Bytes[00..15]:                   %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X\n",
+        stats.LastRawByte0,
+        stats.LastRawByte1,
+        stats.LastRawByte2,
+        stats.LastRawByte3,
+        stats.LastRawByte4,
+        stats.LastRawByte5,
+        stats.LastRawByte6,
+        stats.LastRawByte7,
+        stats.LastRawByte8,
+        stats.LastRawByte9,
+        stats.LastRawByte10,
+        stats.LastRawByte11,
+        stats.LastRawByte12,
+        stats.LastRawByte13,
+        stats.LastRawByte14,
+        stats.LastRawByte15
+    );
 
-    wprintf(L"LastDecodedTouchX:                %ld\n", stats.LastDecodedTouchX);
-    wprintf(L"LastDecodedTouchY:                %ld\n", stats.LastDecodedTouchY);
-    wprintf(L"LastDecodeTouchReportSucceeded:   %ld\n", stats.LastDecodeTouchReportSucceeded);
-    wprintf(L"LastDecodeTouchReportFailed:      %ld\n", stats.LastDecodeTouchReportFailed);
+    wprintf(L"\n[Tip Candidates]\n");
+    wprintf(L"TipCandidateByte0Bit0:           %ld\n", stats.TipCandidateByte0Bit0);
+    wprintf(L"TipCandidateByte1Bit0:           %ld\n", stats.TipCandidateByte1Bit0);
+    wprintf(L"TipCandidateByte2Bit0:           %ld\n", stats.TipCandidateByte2Bit0);
+    wprintf(L"TipCandidateByte6Bit0:           %ld\n", stats.TipCandidateByte6Bit0);
+    wprintf(L"TipCandidateByte7Bit0:           %ld\n", stats.TipCandidateByte7Bit0);
+    wprintf(L"LastDecodedTipSwitch:            %ld\n", stats.LastDecodedTipSwitch);
 
-    wprintf(L"LastReadData:\n");
-    for (int i = 0; i < stats.LastReadDataLength && i < 64; i++)
-    {
-        if (i % 16 == 0)
-        {
-            wprintf(L"  ");
-        }
-
-        wprintf(L"%02X ", stats.LastReadData[i]);
-
-        if (i % 16 == 15)
-        {
-            wprintf(L"\n");
-        }
-    }
-
-    if (stats.LastReadDataLength >= 6)
-    {
-        USHORT x = static_cast<USHORT>(
-            stats.LastReadData[2] |
-            (stats.LastReadData[3] << 8)
-            );
-
-        USHORT y = static_cast<USHORT>(
-            stats.LastReadData[4] |
-            (stats.LastReadData[5] << 8)
-            );
-
-        wprintf(L"\n");
-
-        wprintf(L"DecodedTouchX:                   %u\n", x);
-        wprintf(L"DecodedTouchY:                   %u\n", y);
-        wprintf(L"LastDecodedTipSwitch:           %ld\n", stats.LastDecodedTipSwitch);
-
-        wprintf(L"LastFrameContactCount:          %ld\n", stats.LastFrameContactCount);
-        wprintf(L"LastFrameX:                     %ld\n", stats.LastFrameX);
-        wprintf(L"LastFrameY:                     %ld\n", stats.LastFrameY);
-        wprintf(L"LastFrameIsDown:                %ld\n", stats.LastFrameIsDown);
-
-        wprintf(L"ReTouchInterfaceQueryCount:      %ld\n", stats.ReTouchInterfaceQueryCount);
-        wprintf(L"ReTouchInterfaceFound:           %ld\n", stats.ReTouchInterfaceFound);
-        wprintf(L"LastReTouchInterfaceStatus:      0x%08X\n", stats.LastReTouchInterfaceStatus);
-
-        wprintf(L"ReTouchClientInitializeCount:    %ld\n", stats.ReTouchClientInitializeCount);
-        wprintf(L"ReTouchClientShutdownCount:      %ld\n", stats.ReTouchClientShutdownCount);
-        wprintf(L"ReTouchClientSubmitFrameCount:   %ld\n", stats.ReTouchClientSubmitFrameCount);
-        wprintf(L"ReTouchClientLastSubmitStatus:   0x%08X\n", stats.ReTouchClientLastSubmitFrameStatus);
-        wprintf(L"ReTouchClientLastContactCount:   %ld\n", stats.ReTouchClientLastSubmitFrameContactCount);
-
-        wprintf(L"ReTouchClientQueryInterfaceCount: %ld\n", stats.ReTouchClientQueryInterfaceCount);
-        wprintf(L"ReTouchClientInterfaceFound:      %ld\n", stats.ReTouchClientInterfaceFound);
-        wprintf(L"ReTouchClientLastQueryStatus:     0x%08X\n", stats.ReTouchClientLastQueryInterfaceStatus);
-
-        wprintf(L"ReTouchClientOpenCount:          %ld\n", stats.ReTouchClientOpenCount);
-        wprintf(L"ReTouchClientOpenSucceeded:      %ld\n", stats.ReTouchClientOpenSucceeded);
-        wprintf(L"ReTouchClientLastOpenStatus:     0x%08X\n", stats.ReTouchClientLastOpenStatus);
-
-        wprintf(L"ReTouchClientTestSubmitCount:    %ld\n", stats.ReTouchClientTestSubmitCount);
-        wprintf(L"ReTouchClientTestSubmitSucceeded:%ld\n", stats.ReTouchClientTestSubmitSucceeded);
-
-        wprintf(L"ReTouchClientLastTestSubmitStatus: 0x%08X\n", stats.ReTouchClientLastTestSubmitStatus);
-        wprintf(L"ReTouchClientWorkItemEnqueueCount: %ld\n", stats.ReTouchClientWorkItemEnqueueCount);
-        wprintf(L"ReTouchClientWorkItemRunCount:     %ld\n", stats.ReTouchClientWorkItemRunCount);
-        wprintf(L"ReTouchClientLastWorkItemContactCount: %ld\n", stats.ReTouchClientLastWorkItemContactCount);
-    }
+    wprintf(L"\n[Pointers]\n");
+    wprintf(L"LastDeviceContextPointer:        0x%p\n", reinterpret_cast<void*>(stats.LastDeviceContextPointer));
+    wprintf(L"LastClientPointer:               0x%p\n", reinterpret_cast<void*>(stats.LastClientPointer));
+    wprintf(L"LastPhysicalDeviceObject:        0x%p\n", reinterpret_cast<void*>(stats.LastPhysicalDeviceObject));
+    wprintf(L"LastWdmDeviceObject:             0x%p\n", reinterpret_cast<void*>(stats.LastWdmDeviceObject));
 
     wprintf(L"\n");
 
@@ -262,110 +175,10 @@ static BOOL ReadStatsFromDevice(const wchar_t* devicePath)
 
 int wmain()
 {
-    HDEVINFO deviceInfoSet = SetupDiGetClassDevsW(
-        &GUID_DEVINTERFACE_TRIDENT_CAPTURE,
-        nullptr,
-        nullptr,
-        DIGCF_PRESENT | DIGCF_DEVICEINTERFACE
-    );
+    BOOL ok = ReadGlobalStatsFromControlDevice();
 
-    if (deviceInfoSet == INVALID_HANDLE_VALUE)
+    if (!ok)
     {
-        wprintf(L"SetupDiGetClassDevsW failed. GetLastError=%lu\n", GetLastError());
-        return 1;
-    }
-
-    DWORD index = 0;
-    BOOL found = FALSE;
-
-    while (true)
-    {
-        SP_DEVICE_INTERFACE_DATA interfaceData = {};
-        interfaceData.cbSize = sizeof(interfaceData);
-
-        BOOL enumOk = SetupDiEnumDeviceInterfaces(
-            deviceInfoSet,
-            nullptr,
-            &GUID_DEVINTERFACE_TRIDENT_CAPTURE,
-            index,
-            &interfaceData
-        );
-
-        if (!enumOk)
-        {
-            DWORD error = GetLastError();
-
-            if (error == ERROR_NO_MORE_ITEMS)
-            {
-                break;
-            }
-
-            wprintf(L"SetupDiEnumDeviceInterfaces failed. GetLastError=%lu\n", error);
-            break;
-        }
-
-        DWORD requiredSize = 0;
-
-        SetupDiGetDeviceInterfaceDetailW(
-            deviceInfoSet,
-            &interfaceData,
-            nullptr,
-            0,
-            &requiredSize,
-            nullptr
-        );
-
-        PSP_DEVICE_INTERFACE_DETAIL_DATA_W detailData =
-            reinterpret_cast<PSP_DEVICE_INTERFACE_DETAIL_DATA_W>(
-                malloc(requiredSize)
-                );
-
-        if (detailData == nullptr)
-        {
-            wprintf(L"malloc failed.\n");
-            SetupDiDestroyDeviceInfoList(deviceInfoSet);
-            return 1;
-        }
-
-        detailData->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA_W);
-
-        BOOL detailOk = SetupDiGetDeviceInterfaceDetailW(
-            deviceInfoSet,
-            &interfaceData,
-            detailData,
-            requiredSize,
-            nullptr,
-            nullptr
-        );
-
-        if (detailOk)
-        {
-            found = TRUE;
-
-            wprintf(L"\n============================================================\n");
-            wprintf(L"Trident interface #%lu\n", index);
-            wprintf(L"DevicePath:\n");
-            wprintf(L"%s\n", detailData->DevicePath);
-
-            ReadStatsFromDevice(detailData->DevicePath);
-        }
-        else
-        {
-            wprintf(
-                L"SetupDiGetDeviceInterfaceDetailW failed. GetLastError=%lu\n",
-                GetLastError()
-            );
-        }
-
-        free(detailData);
-        index++;
-    }
-
-    SetupDiDestroyDeviceInfoList(deviceInfoSet);
-
-    if (!found)
-    {
-        wprintf(L"No Trident interface found.\n");
         return 1;
     }
 

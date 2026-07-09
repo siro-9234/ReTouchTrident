@@ -37,6 +37,20 @@ typedef struct _RETOUCH_STATS
 
     LONG WdmDeviceObjectNull;
 
+    LONG LastActiveContactCount;
+    LONG LastFirstContactFlags;
+    LONG LastFirstContactId;
+    LONG LastFirstContactX;
+    LONG LastFirstContactY;
+    LONG LastReportContactCount;
+
+    LONG ReceivedSubmitFrameIoctlCount;
+    LONG ReceivedContactCount;
+    LONG ReceivedFirstContactId;
+    LONG ReceivedFirstContactIsDown;
+    LONG ReceivedFirstContactX;
+    LONG ReceivedFirstContactY;
+
 } RETOUCH_STATS, * PRETOUCH_STATS;
 
 static BOOL ReadStatsFromDevice(const wchar_t* devicePath)
@@ -99,6 +113,20 @@ static BOOL ReadStatsFromDevice(const wchar_t* devicePath)
     wprintf(L"LastGetFeatureReportId:          %ld\n", stats.LastGetFeatureReportId);
 
     wprintf(L"WdmDeviceObjectNull:             %ld\n", stats.WdmDeviceObjectNull);
+
+    wprintf(L"LastActiveContactCount:          %ld\n", stats.LastActiveContactCount);
+    wprintf(L"LastFirstContactFlags:           0x%02X\n", stats.LastFirstContactFlags);
+    wprintf(L"LastFirstContactId:              %ld\n", stats.LastFirstContactId);
+    wprintf(L"LastFirstContactX:               %ld\n", stats.LastFirstContactX);
+    wprintf(L"LastFirstContactY:               %ld\n", stats.LastFirstContactY);
+    wprintf(L"LastReportContactCount:          %ld\n", stats.LastReportContactCount);
+
+    wprintf(L"ReceivedSubmitFrameIoctlCount:   %ld\n", stats.ReceivedSubmitFrameIoctlCount);
+    wprintf(L"ReceivedContactCount:            %ld\n", stats.ReceivedContactCount);
+    wprintf(L"ReceivedFirstContactId:          %ld\n", stats.ReceivedFirstContactId);
+    wprintf(L"ReceivedFirstContactIsDown:      %ld\n", stats.ReceivedFirstContactIsDown);
+    wprintf(L"ReceivedFirstContactX:           %ld\n", stats.ReceivedFirstContactX);
+    wprintf(L"ReceivedFirstContactY:           %ld\n", stats.ReceivedFirstContactY);
 
     wprintf(L"\n");
 

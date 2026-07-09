@@ -71,6 +71,8 @@ VOID EvtIoDeviceControl(
             break;
         }
 
+        ReTouchStatsRecordReceivedFrame(frame);
+
         if (frame->ContactCount > RETOUCH_MAX_CONTACTS)
         {
             status = STATUS_INVALID_PARAMETER;

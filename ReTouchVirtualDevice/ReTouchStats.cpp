@@ -19,6 +19,20 @@ static volatile LONG g_LastGetFeatureReportId = 0;
 
 static volatile LONG g_WdmDeviceObjectNull = 0;
 
+static volatile LONG g_LastActiveContactCount = 0;
+static volatile LONG g_LastFirstContactFlags = 0;
+static volatile LONG g_LastFirstContactId = 0;
+static volatile LONG g_LastFirstContactX = 0;
+static volatile LONG g_LastFirstContactY = 0;
+static volatile LONG g_LastReportContactCount = 0;
+
+static volatile LONG g_ReceivedSubmitFrameIoctlCount = 0;
+static volatile LONG g_ReceivedContactCount = 0;
+static volatile LONG g_ReceivedFirstContactId = 0;
+static volatile LONG g_ReceivedFirstContactIsDown = 0;
+static volatile LONG g_ReceivedFirstContactX = 0;
+static volatile LONG g_ReceivedFirstContactY = 0;
+
 VOID ReTouchStatsRecordDeviceAdd()
 {
     InterlockedIncrement(&g_DeviceAddCount);
@@ -62,6 +76,46 @@ VOID ReTouchStatsRecordSubmitFrame(
     InterlockedIncrement(&g_SubmitFrameCount);
     InterlockedExchange(&g_LastSubmitFrameStatus, Status);
     InterlockedExchange(&g_LastContactCount, ContactCount);
+}
+
+VOID ReTouchStatsRecordTouchReport(
+    _In_ UCHAR ActiveContactCount,
+    _In_ UCHAR FirstContactFlags,
+    _In_ UCHAR FirstContactId,
+    _In_ USHORT FirstContactX,
+    _In_ USHORT FirstContactY,
+    _In_ UCHAR ReportContactCount
+)
+{
+    InterlockedExchange(&g_LastActiveContactCount, ActiveContactCount);
+    InterlockedExchange(&g_LastFirstContactFlags, FirstContactFlags);
+    InterlockedExchange(&g_LastFirstContactId, FirstContactId);
+    InterlockedExchange(&g_LastFirstContactX, FirstContactX);
+    InterlockedExchange(&g_LastFirstContactY, FirstContactY);
+    InterlockedExchange(&g_LastReportContactCount, ReportContactCount);
+}
+
+VOID ReTouchStatsRecordReceivedFrame(
+    _In_opt_ PRETOUCH_FRAME Frame
+)
+{
+    InterlockedIncrement(&g_ReceivedSubmitFrameIoctlCount);
+
+    if (Frame == nullptr)
+    {
+        InterlockedExchange(&g_ReceivedContactCount, 0);
+        InterlockedExchange(&g_ReceivedFirstContactId, 0);
+        InterlockedExchange(&g_ReceivedFirstContactIsDown, 0);
+        InterlockedExchange(&g_ReceivedFirstContactX, 0);
+        InterlockedExchange(&g_ReceivedFirstContactY, 0);
+        return;
+    }
+
+    InterlockedExchange(&g_ReceivedContactCount, Frame->ContactCount);
+    InterlockedExchange(&g_ReceivedFirstContactId, Frame->Contacts[0].Id);
+    InterlockedExchange(&g_ReceivedFirstContactIsDown, Frame->Contacts[0].IsDown);
+    InterlockedExchange(&g_ReceivedFirstContactX, Frame->Contacts[0].X);
+    InterlockedExchange(&g_ReceivedFirstContactY, Frame->Contacts[0].Y);
 }
 
 VOID ReTouchStatsRecordGetFeature(
@@ -126,4 +180,40 @@ VOID ReTouchStatsSnapshot(
 
     Stats->WdmDeviceObjectNull =
         InterlockedCompareExchange(&g_WdmDeviceObjectNull, 0, 0);
+
+    Stats->LastActiveContactCount =
+        InterlockedCompareExchange(&g_LastActiveContactCount, 0, 0);
+
+    Stats->LastFirstContactFlags =
+        InterlockedCompareExchange(&g_LastFirstContactFlags, 0, 0);
+
+    Stats->LastFirstContactId =
+        InterlockedCompareExchange(&g_LastFirstContactId, 0, 0);
+
+    Stats->LastFirstContactX =
+        InterlockedCompareExchange(&g_LastFirstContactX, 0, 0);
+
+    Stats->LastFirstContactY =
+        InterlockedCompareExchange(&g_LastFirstContactY, 0, 0);
+
+    Stats->LastReportContactCount =
+        InterlockedCompareExchange(&g_LastReportContactCount, 0, 0);
+
+    Stats->ReceivedSubmitFrameIoctlCount =
+        InterlockedCompareExchange(&g_ReceivedSubmitFrameIoctlCount, 0, 0);
+
+    Stats->ReceivedContactCount =
+        InterlockedCompareExchange(&g_ReceivedContactCount, 0, 0);
+
+    Stats->ReceivedFirstContactId =
+        InterlockedCompareExchange(&g_ReceivedFirstContactId, 0, 0);
+
+    Stats->ReceivedFirstContactIsDown =
+        InterlockedCompareExchange(&g_ReceivedFirstContactIsDown, 0, 0);
+
+    Stats->ReceivedFirstContactX =
+        InterlockedCompareExchange(&g_ReceivedFirstContactX, 0, 0);
+
+    Stats->ReceivedFirstContactY =
+        InterlockedCompareExchange(&g_ReceivedFirstContactY, 0, 0);
 }
