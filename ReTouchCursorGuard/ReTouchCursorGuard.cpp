@@ -20,6 +20,10 @@ static uint64_t g_RawMouseButtonCount = 0;
 static POINT g_LastPhysicalCursorPosition = {};
 static bool g_HasLastPhysicalCursorPosition = false;
 
+static bool g_IsTouchActive = false;
+static bool g_IsTouchRecoveryCooldownActive = false;
+static LARGE_INTEGER g_TouchRecoveryBlockUntilQpc = {};
+
 static void PrintQpcPrefix()
 {
     LARGE_INTEGER counter = {};
@@ -100,6 +104,160 @@ static bool RegisterRawMouse(HWND hwnd)
     ) != FALSE;
 }
 
+static bool IsTouchInputProtectionActive()
+{
+    if (g_IsTouchActive)
+    {
+        return true;
+    }
+
+    if (!g_IsTouchRecoveryCooldownActive)
+    {
+        return false;
+    }
+
+    LARGE_INTEGER now = {};
+
+    if (!QueryPerformanceCounter(&now))
+    {
+        return true;
+    }
+
+    if (now.QuadPart < g_TouchRecoveryBlockUntilQpc.QuadPart)
+    {
+        return true;
+    }
+
+    g_IsTouchRecoveryCooldownActive = false;
+
+    PrintQpcPrefix();
+    std::printf("TouchRecoveryCooldown expired\n");
+
+    return false;
+}
+
+static void ApplyCursorRecovery()
+{
+    if (!g_HasLastPhysicalCursorPosition)
+    {
+        PrintQpcPrefix();
+        std::printf("ApplyCorrection skipped. LastPhysical is invalid.\n");
+        return;
+    }
+
+    CURSORINFO beforeCursorInfo = {};
+    beforeCursorInfo.cbSize = sizeof(CURSORINFO);
+
+    if (GetCursorInfo(&beforeCursorInfo))
+    {
+        PrintQpcPrefix();
+        std::printf(
+            "BeforeCorrection CursorFlags=0x%08lX CursorPos=(%ld,%ld) hCursor=%p LastPhysical=(%ld,%ld)\n",
+            beforeCursorInfo.flags,
+            beforeCursorInfo.ptScreenPos.x,
+            beforeCursorInfo.ptScreenPos.y,
+            beforeCursorInfo.hCursor,
+            g_LastPhysicalCursorPosition.x,
+            g_LastPhysicalCursorPosition.y
+        );
+    }
+
+    SetLastError(0);
+
+    BOOL setResult = SetCursorPos(
+        g_LastPhysicalCursorPosition.x,
+        g_LastPhysicalCursorPosition.y
+    );
+
+    DWORD setError = GetLastError();
+
+    PrintQpcPrefix();
+
+    std::printf(
+        "ApplyCorrection SetCursorPos(%ld,%ld) result=%d GetLastError=%lu\n",
+        g_LastPhysicalCursorPosition.x,
+        g_LastPhysicalCursorPosition.y,
+        setResult ? 1 : 0,
+        setError
+    );
+
+    INPUT input = {};
+    input.type = INPUT_MOUSE;
+    input.mi.dx = 1;
+    input.mi.dy = 0;
+    input.mi.dwFlags = MOUSEEVENTF_MOVE;
+
+    SetLastError(0);
+
+    UINT sent = SendInput(
+        1,
+        &input,
+        sizeof(INPUT)
+    );
+
+    DWORD sendInputError = GetLastError();
+
+    PrintQpcPrefix();
+
+    std::printf(
+        "SendInputTest dx=1 dy=0 sent=%u GetLastError=%lu LastPhysical=(%ld,%ld)\n",
+        sent,
+        sendInputError,
+        g_LastPhysicalCursorPosition.x,
+        g_LastPhysicalCursorPosition.y
+    );
+
+    SetLastError(0);
+
+    BOOL finalSetResult = SetCursorPos(
+        g_LastPhysicalCursorPosition.x,
+        g_LastPhysicalCursorPosition.y
+    );
+
+    DWORD finalSetError = GetLastError();
+
+    CURSORINFO finalCursorInfo = {};
+    finalCursorInfo.cbSize = sizeof(CURSORINFO);
+
+    if (GetCursorInfo(&finalCursorInfo))
+    {
+        PrintQpcPrefix();
+
+        std::printf(
+            "FinalCorrection SetCursorPosResult=%d SetCursorPosError=%lu CursorFlags=0x%08lX CursorPos=(%ld,%ld) hCursor=%p LastPhysical=(%ld,%ld)\n",
+            finalSetResult ? 1 : 0,
+            finalSetError,
+            finalCursorInfo.flags,
+            finalCursorInfo.ptScreenPos.x,
+            finalCursorInfo.ptScreenPos.y,
+            finalCursorInfo.hCursor,
+            g_LastPhysicalCursorPosition.x,
+            g_LastPhysicalCursorPosition.y
+        );
+    }
+
+    LARGE_INTEGER now = {};
+    LARGE_INTEGER frequency = {};
+
+    if (QueryPerformanceCounter(&now) &&
+        QueryPerformanceFrequency(&frequency))
+    {
+        g_TouchRecoveryBlockUntilQpc.QuadPart =
+            now.QuadPart + (frequency.QuadPart / 10);
+
+        g_IsTouchRecoveryCooldownActive = true;
+
+        PrintQpcPrefix();
+        std::printf(
+            "TouchRecoveryCooldown started DurationMs=100 BlockUntilQpc=%lld\n",
+            g_TouchRecoveryBlockUntilQpc.QuadPart
+        );
+    }
+
+    PrintQpcPrefix();
+    std::printf("RecoveryFinished\n");
+}
+
 static void HandleRawInput(LPARAM lParam)
 {
     UINT size = 0;
@@ -170,133 +328,77 @@ static void HandleRawInput(LPARAM lParam)
         bool isRelativePhysicalMouse =
             mouse.usFlags == MOUSE_MOVE_RELATIVE;
 
+        bool isLeftButtonDown =
+            (mouse.usButtonFlags & RI_MOUSE_LEFT_BUTTON_DOWN) != 0;
+
+        bool isLeftButtonUp =
+            (mouse.usButtonFlags & RI_MOUSE_LEFT_BUTTON_UP) != 0;
+
+        bool protectionActive = IsTouchInputProtectionActive();
+
+        PrintQpcPrefix();
+
+        std::printf(
+            "RawEnter Flags=0x%04X ButtonFlags=0x%04X "
+            "LastX=%ld LastY=%ld TouchActive=%d CooldownActive=%d ProtectionActive=%d\n",
+            mouse.usFlags,
+            mouse.usButtonFlags,
+            mouse.lLastX,
+            mouse.lLastY,
+            g_IsTouchActive ? 1 : 0,
+            g_IsTouchRecoveryCooldownActive ? 1 : 0,
+            protectionActive ? 1 : 0
+        );
+
+        if (isAbsolutePromotedMouse && isLeftButtonDown)
+        {
+            g_IsTouchActive = true;
+
+            PrintQpcPrefix();
+            std::printf("TouchActive=1 by AbsolutePromoted LeftButtonDown\n");
+        }
+
         if (moved)
         {
             ++g_RawMouseMoveCount;
 
-            PrintQpcPrefix();
-
             if (isAbsolutePromotedMouse)
             {
-                POINT currentCursor = {};
-                GetCursorPos(&currentCursor);
-
-                if (mouse.usButtonFlags == RI_MOUSE_LEFT_BUTTON_UP &&
-                    g_HasLastPhysicalCursorPosition)
+                if (isLeftButtonUp)
                 {
                     PrintQpcPrefix();
+                    std::printf("TouchUpTransition detected. Applying recovery before TouchActive=0.\n");
 
-                    std::printf(
-                        "ApplyCorrection SetCursorPos(%ld,%ld)\n",
-                        g_LastPhysicalCursorPosition.x,
-                        g_LastPhysicalCursorPosition.y
-                    );
+                    ApplyCursorRecovery();
 
-                    SetCursorPos(
-                        g_LastPhysicalCursorPosition.x,
-                        g_LastPhysicalCursorPosition.y
-                    );
-
-                    CURSORINFO cursorInfo = {};
-                    cursorInfo.cbSize = sizeof(CURSORINFO);
-
-                    if (GetCursorInfo(&cursorInfo))
-                    {
-                        PrintQpcPrefix();
-
-                        std::printf(
-                            "PostCorrection CursorFlags=0x%08lX CursorPos=(%ld,%ld) hCursor=%p\n",
-                            cursorInfo.flags,
-                            cursorInfo.ptScreenPos.x,
-                            cursorInfo.ptScreenPos.y,
-                            cursorInfo.hCursor
-                        );
-                    }
-                    else
-                    {
-                        PrintQpcPrefix();
-                        std::printf(
-                            "GetCursorInfo failed. GetLastError=%lu\n",
-                            GetLastError()
-                        );
-                    }
-
-                    INPUT input = {};
-                    input.type = INPUT_MOUSE;
-                    input.mi.dx = 1;
-                    input.mi.dy = 0;
-                    input.mi.dwFlags = MOUSEEVENTF_MOVE;
-
-                    UINT sent = SendInput(
-                        1,
-                        &input,
-                        sizeof(INPUT)
-                    );
+                    g_IsTouchActive = false;
 
                     PrintQpcPrefix();
-
-                    std::printf(
-                        "SendInputTest dx=1 dy=0 sent=%u GetLastError=%lu\n",
-                        sent,
-                        GetLastError()
-                    );
-
-                    SetCursorPos(
-                        g_LastPhysicalCursorPosition.x,
-                        g_LastPhysicalCursorPosition.y
-                    );
-
-                    CURSORINFO finalCursorInfo = {};
-                    finalCursorInfo.cbSize = sizeof(CURSORINFO);
-
-                    if (GetCursorInfo(&finalCursorInfo))
-                    {
-                        PrintQpcPrefix();
-
-                        std::printf(
-                            "FinalCorrection CursorFlags=0x%08lX CursorPos=(%ld,%ld) hCursor=%p\n",
-                            finalCursorInfo.flags,
-                            finalCursorInfo.ptScreenPos.x,
-                            finalCursorInfo.ptScreenPos.y,
-                            finalCursorInfo.hCursor
-                        );
-                    }
-                    else
-                    {
-                        PrintQpcPrefix();
-
-                        std::printf(
-                            "FinalCorrection GetCursorInfo failed. GetLastError=%lu\n",
-                            GetLastError()
-                        );
-                    }
-
-                    GetCursorPos(&currentCursor);
+                    std::printf("TouchActive=0 by AbsolutePromoted LeftButtonUp. Cooldown remains active if started.\n");
                 }
 
-                LONG deltaX =
-                    currentCursor.x - g_LastPhysicalCursorPosition.x;
+                POINT currentCursor = {};
+                BOOL hasCurrentCursor = GetCursorPos(&currentCursor);
 
-                LONG deltaY =
-                    currentCursor.y - g_LastPhysicalCursorPosition.y;
+                PrintQpcPrefix();
 
                 std::printf(
-                    "CorrectionCandidate "
+                    "AbsolutePromotedMouseMove "
                     "Absolute=(%ld,%ld) "
-                    "CurrentCursor=(%ld,%ld) "
-                    "LastPhysical=(%ld,%ld) "
-                    "Delta=(%ld,%ld) "
-                    "Flags=0x%04X "
-                    "ButtonFlags=0x%04X "
-                    "MoveCount=%llu\n",
+                    "CursorValid=%d Cursor=(%ld,%ld) "
+                    "LastPhysicalValid=%d LastPhysical=(%ld,%ld) "
+                    "TouchActive=%d CooldownActive=%d "
+                    "Flags=0x%04X ButtonFlags=0x%04X MoveCount=%llu\n",
                     mouse.lLastX,
                     mouse.lLastY,
+                    hasCurrentCursor ? 1 : 0,
                     currentCursor.x,
                     currentCursor.y,
+                    g_HasLastPhysicalCursorPosition ? 1 : 0,
                     g_LastPhysicalCursorPosition.x,
                     g_LastPhysicalCursorPosition.y,
-                    deltaX,
-                    deltaY,
+                    g_IsTouchActive ? 1 : 0,
+                    g_IsTouchRecoveryCooldownActive ? 1 : 0,
                     mouse.usFlags,
                     mouse.usButtonFlags,
                     static_cast<unsigned long long>(g_RawMouseMoveCount)
@@ -305,39 +407,59 @@ static void HandleRawInput(LPARAM lParam)
             else if (isRelativePhysicalMouse)
             {
                 POINT cursorPosition = {};
+                BOOL hasCursorPosition = GetCursorPos(&cursorPosition);
 
-                if (GetCursorPos(&cursorPosition))
+                POINT lastPhysicalBefore = g_LastPhysicalCursorPosition;
+                bool hadLastPhysicalBefore = g_HasLastPhysicalCursorPosition;
+
+                bool shouldUpdateLastPhysical =
+                    !IsTouchInputProtectionActive();
+
+                if (shouldUpdateLastPhysical)
                 {
-                    g_LastPhysicalCursorPosition = cursorPosition;
-                    g_HasLastPhysicalCursorPosition = true;
+                    if (!g_HasLastPhysicalCursorPosition)
+                    {
+                        if (hasCursorPosition)
+                        {
+                            g_LastPhysicalCursorPosition = cursorPosition;
+                            g_HasLastPhysicalCursorPosition = true;
+                        }
+                    }
+                    else
+                    {
+                        g_LastPhysicalCursorPosition.x += mouse.lLastX;
+                        g_LastPhysicalCursorPosition.y += mouse.lLastY;
+                    }
                 }
 
+                PrintQpcPrefix();
+
                 std::printf(
-                    "RelativePhysicalMouseMove dx=%ld dy=%ld Flags=0x%04X ButtonFlags=0x%04X ButtonData=%hu MoveCount=%llu LastPhysical=(%ld,%ld) LastPhysicalValid=%d\n",
+                    "RelativePhysicalMouseMoveByRawDelta "
+                    "dx=%ld dy=%ld "
+                    "CursorValid=%d Cursor=(%ld,%ld) "
+                    "TouchActive=%d CooldownActive=%d "
+                    "LastPhysicalUpdate=%d "
+                    "LastPhysicalBeforeValid=%d LastPhysicalBefore=(%ld,%ld) "
+                    "LastPhysicalAfterValid=%d LastPhysicalAfter=(%ld,%ld) "
+                    "Flags=0x%04X ButtonFlags=0x%04X MoveCount=%llu\n",
                     mouse.lLastX,
                     mouse.lLastY,
-                    mouse.usFlags,
-                    mouse.usButtonFlags,
-                    mouse.usButtonData,
-                    static_cast<unsigned long long>(g_RawMouseMoveCount),
-                    g_LastPhysicalCursorPosition.x,
-                    g_LastPhysicalCursorPosition.y,
-                    g_HasLastPhysicalCursorPosition ? 1 : 0
-                );
-            }
-            else
-            {
-                std::printf(
-                    "OtherMouseMove x=%ld y=%ld Flags=0x%04X ButtonFlags=0x%04X ButtonData=%hu MoveCount=%llu LastPhysicalValid=%d LastPhysical=(%ld,%ld)\n",
-                    mouse.lLastX,
-                    mouse.lLastY,
-                    mouse.usFlags,
-                    mouse.usButtonFlags,
-                    mouse.usButtonData,
-                    static_cast<unsigned long long>(g_RawMouseMoveCount),
+                    hasCursorPosition ? 1 : 0,
+                    cursorPosition.x,
+                    cursorPosition.y,
+                    g_IsTouchActive ? 1 : 0,
+                    g_IsTouchRecoveryCooldownActive ? 1 : 0,
+                    shouldUpdateLastPhysical ? 1 : 0,
+                    hadLastPhysicalBefore ? 1 : 0,
+                    lastPhysicalBefore.x,
+                    lastPhysicalBefore.y,
                     g_HasLastPhysicalCursorPosition ? 1 : 0,
                     g_LastPhysicalCursorPosition.x,
-                    g_LastPhysicalCursorPosition.y
+                    g_LastPhysicalCursorPosition.y,
+                    mouse.usFlags,
+                    mouse.usButtonFlags,
+                    static_cast<unsigned long long>(g_RawMouseMoveCount)
                 );
             }
         }
@@ -348,43 +470,24 @@ static void HandleRawInput(LPARAM lParam)
 
             PrintQpcPrefix();
 
-            if (isAbsolutePromotedMouse)
-            {
-                std::printf(
-                    "AbsolutePromotedMouseButton Flags=0x%04X ButtonData=%hu ButtonCount=%llu LastPhysicalValid=%d LastPhysical=(%ld,%ld)\n",
-                    mouse.usButtonFlags,
-                    mouse.usButtonData,
-                    static_cast<unsigned long long>(g_RawMouseButtonCount),
-                    g_HasLastPhysicalCursorPosition ? 1 : 0,
-                    g_LastPhysicalCursorPosition.x,
-                    g_LastPhysicalCursorPosition.y
-                );
-            }
-            else if (isRelativePhysicalMouse)
-            {
-                std::printf(
-                    "RelativePhysicalMouseButton Flags=0x%04X ButtonData=%hu ButtonCount=%llu LastPhysical=(%ld,%ld) LastPhysicalValid=%d\n",
-                    mouse.usButtonFlags,
-                    mouse.usButtonData,
-                    static_cast<unsigned long long>(g_RawMouseButtonCount),
-                    g_LastPhysicalCursorPosition.x,
-                    g_LastPhysicalCursorPosition.y,
-                    g_HasLastPhysicalCursorPosition ? 1 : 0
-                );
-            }
-            else
-            {
-                std::printf(
-                    "OtherMouseButton MouseFlags=0x%04X ButtonFlags=0x%04X ButtonData=%hu ButtonCount=%llu LastPhysicalValid=%d LastPhysical=(%ld,%ld)\n",
-                    mouse.usFlags,
-                    mouse.usButtonFlags,
-                    mouse.usButtonData,
-                    static_cast<unsigned long long>(g_RawMouseButtonCount),
-                    g_HasLastPhysicalCursorPosition ? 1 : 0,
-                    g_LastPhysicalCursorPosition.x,
-                    g_LastPhysicalCursorPosition.y
-                );
-            }
+            std::printf(
+                "RawMouseButton "
+                "IsRelativePhysical=%d IsAbsolutePromoted=%d "
+                "TouchActive=%d CooldownActive=%d "
+                "MouseFlags=0x%04X ButtonFlags=0x%04X ButtonData=%hu "
+                "ButtonCount=%llu LastPhysicalValid=%d LastPhysical=(%ld,%ld)\n",
+                isRelativePhysicalMouse ? 1 : 0,
+                isAbsolutePromotedMouse ? 1 : 0,
+                g_IsTouchActive ? 1 : 0,
+                g_IsTouchRecoveryCooldownActive ? 1 : 0,
+                mouse.usFlags,
+                mouse.usButtonFlags,
+                mouse.usButtonData,
+                static_cast<unsigned long long>(g_RawMouseButtonCount),
+                g_HasLastPhysicalCursorPosition ? 1 : 0,
+                g_LastPhysicalCursorPosition.x,
+                g_LastPhysicalCursorPosition.y
+            );
         }
     }
 
