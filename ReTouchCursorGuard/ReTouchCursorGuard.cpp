@@ -1,8 +1,8 @@
-﻿// ReTouchCursorGuard.cpp
-#include <windows.h>
+﻿#include <windows.h>
 #include <cstdio>
 #include <cstdint>
-
+#include <unordered_set>
+#include <vector>
 struct CursorSnapshot
 {
     LARGE_INTEGER Counter;
@@ -17,12 +17,37 @@ static bool g_HasPreviousCursor = false;
 static uint64_t g_RawMouseMoveCount = 0;
 static uint64_t g_RawMouseButtonCount = 0;
 
+static std::unordered_set<HANDLE> g_ObservedRawInputDevices;
+
+static constexpr ULONG_PTR g_MiWpSignature =
+static_cast<ULONG_PTR>(0xFF515700);
+
+static constexpr ULONG_PTR g_MiWpSignatureMask =
+static_cast<ULONG_PTR>(0xFFFFFF00);
+
+static constexpr ULONG_PTR g_MiWpTouchMask =
+static_cast<ULONG_PTR>(0x00000080);
+
+enum class RawMouseClassification
+{
+    PhysicalMouseCandidate,
+    ConfirmedTouchPromotion,
+    SuspiciousAbsoluteInput,
+    SyntheticOrInjectedRelativeInput,
+    OtherMouseInput
+};
+
 static POINT g_LastPhysicalCursorPosition = {};
 static bool g_HasLastPhysicalCursorPosition = false;
 
 static bool g_IsTouchActive = false;
 static bool g_IsTouchRecoveryCooldownActive = false;
 static LARGE_INTEGER g_TouchRecoveryBlockUntilQpc = {};
+
+static HWND g_LastRealForegroundWindow = nullptr;
+static DWORD g_LastRealForegroundThreadId = 0;
+static DWORD g_LastRealForegroundProcessId = 0;
+static wchar_t g_LastRealForegroundTitle[256] = {};
 
 static void PrintQpcPrefix()
 {
@@ -36,6 +61,328 @@ static void PrintQpcPrefix()
         "[QPC=%lld Freq=%lld] ",
         counter.QuadPart,
         frequency.QuadPart
+    );
+}
+
+static const char* GetRawMouseClassificationName(
+    RawMouseClassification classification
+)
+{
+    switch (classification)
+    {
+    case RawMouseClassification::PhysicalMouseCandidate:
+        return "PhysicalMouseCandidate";
+
+    case RawMouseClassification::ConfirmedTouchPromotion:
+        return "ConfirmedTouchPromotion";
+
+    case RawMouseClassification::SuspiciousAbsoluteInput:
+        return "SuspiciousAbsoluteInput";
+
+    case RawMouseClassification::SyntheticOrInjectedRelativeInput:
+        return "SyntheticOrInjectedRelativeInput";
+
+    case RawMouseClassification::OtherMouseInput:
+        return "OtherMouseInput";
+
+    default:
+        return "UnknownRawMouseClassification";
+    }
+}
+
+static RawMouseClassification ClassifyRawMouseInput(
+    const RAWINPUTHEADER& header,
+    const RAWMOUSE& mouse,
+    bool hasMiWpSignature,
+    bool hasTouchSignature
+)
+{
+    const bool isAbsolute =
+        (mouse.usFlags & MOUSE_MOVE_ABSOLUTE) != 0;
+
+    const bool isVirtualDesktop =
+        (mouse.usFlags & MOUSE_VIRTUAL_DESKTOP) != 0;
+
+    const bool isRelative =
+        mouse.usFlags == MOUSE_MOVE_RELATIVE;
+
+    if (hasMiWpSignature &&
+        hasTouchSignature &&
+        isAbsolute &&
+        isVirtualDesktop)
+    {
+        return RawMouseClassification::
+            ConfirmedTouchPromotion;
+    }
+
+    if (isAbsolute &&
+        isVirtualDesktop)
+    {
+        return RawMouseClassification::
+            SuspiciousAbsoluteInput;
+    }
+
+    if (header.hDevice == nullptr &&
+        isRelative &&
+        !hasMiWpSignature)
+    {
+        return RawMouseClassification::
+            SyntheticOrInjectedRelativeInput;
+    }
+
+    if (header.hDevice != nullptr &&
+        isRelative &&
+        !hasMiWpSignature)
+    {
+        return RawMouseClassification::
+            PhysicalMouseCandidate;
+    }
+
+    return RawMouseClassification::
+        OtherMouseInput;
+}
+
+static void PrintRawInputDeviceIdentityOnce(
+    const RAWINPUTHEADER& header
+)
+{
+    HANDLE deviceHandle = header.hDevice;
+
+    const auto insertResult =
+        g_ObservedRawInputDevices.insert(deviceHandle);
+
+    if (!insertResult.second)
+    {
+        return;
+    }
+
+    PrintQpcPrefix();
+
+    std::printf(
+        "RawInputDeviceFirstSeen "
+        "HeaderType=%lu "
+        "HeaderSize=%lu "
+        "DeviceHandle=%p "
+        "InputCode=0x%p\n",
+        header.dwType,
+        header.dwSize,
+        deviceHandle,
+        reinterpret_cast<void*>(header.wParam)
+    );
+
+    if (deviceHandle == nullptr)
+    {
+        PrintQpcPrefix();
+
+        std::printf(
+            "RawInputDeviceIdentity "
+            "DeviceHandle=NULL "
+            "DeviceNameQuerySkipped=1 "
+            "DeviceInfoQuerySkipped=1\n"
+        );
+
+        return;
+    }
+
+    UINT deviceNameCharacterCount = 0;
+
+    SetLastError(0);
+
+    UINT deviceNameSizeResult =
+        GetRawInputDeviceInfoW(
+            deviceHandle,
+            RIDI_DEVICENAME,
+            nullptr,
+            &deviceNameCharacterCount
+        );
+
+    DWORD deviceNameSizeError =
+        GetLastError();
+
+    PrintQpcPrefix();
+
+    std::printf(
+        "RawInputDeviceNameSize "
+        "DeviceHandle=%p "
+        "Result=%u "
+        "GetLastError=%lu "
+        "CharacterCount=%u\n",
+        deviceHandle,
+        deviceNameSizeResult,
+        deviceNameSizeError,
+        deviceNameCharacterCount
+    );
+
+    if (deviceNameSizeResult != static_cast<UINT>(-1) &&
+        deviceNameCharacterCount > 0)
+    {
+        std::vector<wchar_t> deviceName(
+            static_cast<size_t>(
+                deviceNameCharacterCount
+                ) + 1,
+            L'\0'
+        );
+
+        UINT deviceNameBufferCharacterCount =
+            static_cast<UINT>(
+                deviceName.size()
+                );
+
+        SetLastError(0);
+
+        UINT deviceNameResult =
+            GetRawInputDeviceInfoW(
+                deviceHandle,
+                RIDI_DEVICENAME,
+                deviceName.data(),
+                &deviceNameBufferCharacterCount
+            );
+
+        DWORD deviceNameError =
+            GetLastError();
+
+        PrintQpcPrefix();
+
+        if (deviceNameResult != static_cast<UINT>(-1))
+        {
+            std::printf(
+                "RawInputDeviceName "
+                "DeviceHandle=%p "
+                "Result=%u "
+                "GetLastError=%lu "
+                "CharacterCount=%u "
+                "Name=\"%ls\"\n",
+                deviceHandle,
+                deviceNameResult,
+                deviceNameError,
+                deviceNameBufferCharacterCount,
+                deviceName.data()
+            );
+        }
+        else
+        {
+            std::printf(
+                "RawInputDeviceName "
+                "DeviceHandle=%p "
+                "Result=%u "
+                "GetLastError=%lu "
+                "CharacterCount=%u "
+                "NameQueryFailed=1\n",
+                deviceHandle,
+                deviceNameResult,
+                deviceNameError,
+                deviceNameBufferCharacterCount
+            );
+        }
+    }
+
+    RID_DEVICE_INFO deviceInfo = {};
+    deviceInfo.cbSize =
+        sizeof(RID_DEVICE_INFO);
+
+    UINT deviceInfoSize =
+        sizeof(RID_DEVICE_INFO);
+
+    SetLastError(0);
+
+    UINT deviceInfoResult =
+        GetRawInputDeviceInfoW(
+            deviceHandle,
+            RIDI_DEVICEINFO,
+            &deviceInfo,
+            &deviceInfoSize
+        );
+
+    DWORD deviceInfoError =
+        GetLastError();
+
+    PrintQpcPrefix();
+
+    std::printf(
+        "RawInputDeviceInfo "
+        "DeviceHandle=%p "
+        "Result=%u "
+        "GetLastError=%lu "
+        "ReturnedSize=%u "
+        "DeviceType=%lu\n",
+        deviceHandle,
+        deviceInfoResult,
+        deviceInfoError,
+        deviceInfoSize,
+        deviceInfo.dwType
+    );
+
+    if (deviceInfoResult == static_cast<UINT>(-1))
+    {
+        return;
+    }
+
+    if (deviceInfo.dwType == RIM_TYPEMOUSE)
+    {
+        PrintQpcPrefix();
+
+        std::printf(
+            "RawInputMouseDeviceInfo "
+            "DeviceHandle=%p "
+            "MouseId=0x%08lX "
+            "NumberOfButtons=%lu "
+            "SampleRate=%lu "
+            "HasHorizontalWheel=%d\n",
+            deviceHandle,
+            deviceInfo.mouse.dwId,
+            deviceInfo.mouse.dwNumberOfButtons,
+            deviceInfo.mouse.dwSampleRate,
+            deviceInfo.mouse.fHasHorizontalWheel ? 1 : 0
+        );
+
+        return;
+    }
+
+    if (deviceInfo.dwType == RIM_TYPEKEYBOARD)
+    {
+        PrintQpcPrefix();
+
+        std::printf(
+            "RawInputDeviceInfoUnexpectedType "
+            "DeviceHandle=%p "
+            "DeviceType=RIM_TYPEKEYBOARD\n",
+            deviceHandle
+        );
+
+        return;
+    }
+
+    if (deviceInfo.dwType == RIM_TYPEHID)
+    {
+        PrintQpcPrefix();
+
+        std::printf(
+            "RawInputHidDeviceInfo "
+            "DeviceHandle=%p "
+            "VendorId=0x%04X "
+            "ProductId=0x%04X "
+            "VersionNumber=0x%04X "
+            "UsagePage=0x%04X "
+            "Usage=0x%04X\n",
+            deviceHandle,
+            deviceInfo.hid.dwVendorId,
+            deviceInfo.hid.dwProductId,
+            deviceInfo.hid.dwVersionNumber,
+            deviceInfo.hid.usUsagePage,
+            deviceInfo.hid.usUsage
+        );
+
+        return;
+    }
+
+    PrintQpcPrefix();
+
+    std::printf(
+        "RawInputDeviceInfoUnexpectedType "
+        "DeviceHandle=%p "
+        "DeviceType=%lu\n",
+        deviceHandle,
+        deviceInfo.dwType
     );
 }
 
@@ -88,6 +435,427 @@ static void PrintCursorSnapshot(
     );
 }
 
+static void PrintWindowTextForLog(HWND hwnd, wchar_t* title, int titleCount)
+{
+    if (title == nullptr || titleCount <= 0)
+    {
+        return;
+    }
+
+    title[0] = L'\0';
+
+    if (hwnd != nullptr)
+    {
+        GetWindowTextW(hwnd, title, titleCount);
+    }
+}
+
+static void PrintGuiFocusSnapshot(const char* label)
+{
+    HWND foregroundWindow = GetForegroundWindow();
+
+    DWORD foregroundProcessId = 0;
+    DWORD foregroundThreadId = 0;
+
+    wchar_t foregroundTitle[256] = {};
+
+    if (foregroundWindow != nullptr)
+    {
+        foregroundThreadId = GetWindowThreadProcessId(
+            foregroundWindow,
+            &foregroundProcessId
+        );
+
+        PrintWindowTextForLog(
+            foregroundWindow,
+            foregroundTitle,
+            static_cast<int>(sizeof(foregroundTitle) / sizeof(foregroundTitle[0]))
+        );
+    }
+
+    bool isProgramManager =
+        wcscmp(foregroundTitle, L"Program Manager") == 0;
+
+    if (foregroundWindow != nullptr && !isProgramManager)
+    {
+        g_LastRealForegroundWindow = foregroundWindow;
+        g_LastRealForegroundThreadId = foregroundThreadId;
+        g_LastRealForegroundProcessId = foregroundProcessId;
+
+        wcscpy_s(
+            g_LastRealForegroundTitle,
+            foregroundTitle
+        );
+    }
+
+    GUITHREADINFO guiThreadInfo = {};
+    guiThreadInfo.cbSize = sizeof(GUITHREADINFO);
+
+    BOOL guiResult = GetGUIThreadInfo(
+        0,
+        &guiThreadInfo
+    );
+
+    wchar_t activeTitle[256] = {};
+    wchar_t focusTitle[256] = {};
+    wchar_t captureTitle[256] = {};
+    wchar_t caretTitle[256] = {};
+
+    PrintWindowTextForLog(guiThreadInfo.hwndActive, activeTitle, 256);
+    PrintWindowTextForLog(guiThreadInfo.hwndFocus, focusTitle, 256);
+    PrintWindowTextForLog(guiThreadInfo.hwndCapture, captureTitle, 256);
+    PrintWindowTextForLog(guiThreadInfo.hwndCaret, caretTitle, 256);
+
+    PrintQpcPrefix();
+
+    std::printf(
+        "%s "
+        "ForegroundHwnd=%p ForegroundThreadId=%lu ForegroundProcessId=%lu ForegroundTitle=\"%ls\" "
+        "LastRealForegroundHwnd=%p LastRealForegroundThreadId=%lu LastRealForegroundProcessId=%lu LastRealForegroundTitle=\"%ls\" "
+        "GetGUIThreadInfoResult=%d GuiFlags=0x%08lX "
+        "ActiveHwnd=%p ActiveTitle=\"%ls\" "
+        "FocusHwnd=%p FocusTitle=\"%ls\" "
+        "CaptureHwnd=%p CaptureTitle=\"%ls\" "
+        "CaretHwnd=%p CaretTitle=\"%ls\"\n",
+        label,
+        foregroundWindow,
+        foregroundThreadId,
+        foregroundProcessId,
+        foregroundTitle,
+        g_LastRealForegroundWindow,
+        g_LastRealForegroundThreadId,
+        g_LastRealForegroundProcessId,
+        g_LastRealForegroundTitle,
+        guiResult ? 1 : 0,
+        guiThreadInfo.flags,
+        guiThreadInfo.hwndActive,
+        activeTitle,
+        guiThreadInfo.hwndFocus,
+        focusTitle,
+        guiThreadInfo.hwndCapture,
+        captureTitle,
+        guiThreadInfo.hwndCaret,
+        caretTitle
+    );
+}
+
+static void PrintWindowIdentityForLog(
+    const char* label,
+    HWND hwnd
+)
+{
+    wchar_t title[256] = {};
+    wchar_t className[256] = {};
+
+    DWORD processId = 0;
+    DWORD threadId = 0;
+
+    if (hwnd != nullptr)
+    {
+        threadId = GetWindowThreadProcessId(
+            hwnd,
+            &processId
+        );
+
+        GetWindowTextW(hwnd, title, 256);
+        GetClassNameW(hwnd, className, 256);
+    }
+
+    PrintQpcPrefix();
+
+    std::printf(
+        "%s "
+        "Hwnd=%p ThreadId=%lu ProcessId=%lu "
+        "ClassName=\"%ls\" Title=\"%ls\"\n",
+        label,
+        hwnd,
+        threadId,
+        processId,
+        className,
+        title
+    );
+}
+
+static void PrintCursorFlagsChangedDetail()
+{
+    CURSORINFO cursorInfo = {};
+    cursorInfo.cbSize = sizeof(CURSORINFO);
+
+    SetLastError(0);
+
+    BOOL cursorInfoResult = GetCursorInfo(&cursorInfo);
+    DWORD cursorInfoError = GetLastError();
+
+    POINT cursorPosition = {};
+
+    SetLastError(0);
+
+    BOOL cursorPosResult = GetCursorPos(&cursorPosition);
+    DWORD cursorPosError = GetLastError();
+
+    HWND windowFromCursorPoint = nullptr;
+
+    if (cursorPosResult)
+    {
+        windowFromCursorPoint = WindowFromPoint(cursorPosition);
+    }
+
+    HWND rootWindow = nullptr;
+    HWND rootOwnerWindow = nullptr;
+
+    if (windowFromCursorPoint != nullptr)
+    {
+        rootWindow = GetAncestor(windowFromCursorPoint, GA_ROOT);
+        rootOwnerWindow = GetAncestor(windowFromCursorPoint, GA_ROOTOWNER);
+    }
+
+    HWND foregroundWindow = GetForegroundWindow();
+    HWND desktopWindow = GetDesktopWindow();
+    HWND shellWindow = GetShellWindow();
+
+    HWND foregroundRootWindow = nullptr;
+    HWND foregroundRootOwnerWindow = nullptr;
+
+    if (foregroundWindow != nullptr)
+    {
+        foregroundRootWindow = GetAncestor(foregroundWindow, GA_ROOT);
+        foregroundRootOwnerWindow = GetAncestor(foregroundWindow, GA_ROOTOWNER);
+    }
+
+    GUITHREADINFO guiThreadInfo = {};
+    guiThreadInfo.cbSize = sizeof(GUITHREADINFO);
+
+    SetLastError(0);
+
+    BOOL guiResult = GetGUIThreadInfo(
+        0,
+        &guiThreadInfo
+    );
+
+    DWORD guiError = GetLastError();
+
+    HWND focusParentWindow = nullptr;
+    HWND focusRootWindow = nullptr;
+    HWND focusRootOwnerWindow = nullptr;
+
+    if (guiThreadInfo.hwndFocus != nullptr)
+    {
+        focusParentWindow = GetParent(guiThreadInfo.hwndFocus);
+        focusRootWindow = GetAncestor(guiThreadInfo.hwndFocus, GA_ROOT);
+        focusRootOwnerWindow = GetAncestor(guiThreadInfo.hwndFocus, GA_ROOTOWNER);
+    }
+
+    PrintQpcPrefix();
+
+    std::printf(
+        "CursorFlagsChangedDetail "
+        "CursorInfoResult=%d CursorInfoError=%lu "
+        "CursorFlags=0x%08lX CursorInfoPos=(%ld,%ld) hCursor=%p "
+        "CursorPosResult=%d CursorPosError=%lu CursorPos=(%ld,%ld) "
+        "ForegroundHwnd=%p "
+        "WindowFromPoint=%p RootWindow=%p RootOwnerWindow=%p "
+        "DesktopWindow=%p ShellWindow=%p "
+        "ForegroundRootWindow=%p ForegroundRootOwnerWindow=%p "
+        "GetGUIThreadInfoResult=%d GetGUIThreadInfoError=%lu "
+        "FocusHwnd=%p FocusParent=%p FocusRoot=%p FocusRootOwner=%p\n",
+        cursorInfoResult ? 1 : 0,
+        cursorInfoError,
+        cursorInfo.flags,
+        cursorInfo.ptScreenPos.x,
+        cursorInfo.ptScreenPos.y,
+        cursorInfo.hCursor,
+        cursorPosResult ? 1 : 0,
+        cursorPosError,
+        cursorPosition.x,
+        cursorPosition.y,
+        foregroundWindow,
+        windowFromCursorPoint,
+        rootWindow,
+        rootOwnerWindow,
+        desktopWindow,
+        shellWindow,
+        foregroundRootWindow,
+        foregroundRootOwnerWindow,
+        guiResult ? 1 : 0,
+        guiError,
+        guiThreadInfo.hwndFocus,
+        focusParentWindow,
+        focusRootWindow,
+        focusRootOwnerWindow
+    );
+
+    PrintWindowIdentityForLog(
+        "CursorFlagsChangedDetail.Foreground",
+        foregroundWindow
+    );
+
+    PrintWindowIdentityForLog(
+        "CursorFlagsChangedDetail.ForegroundRoot",
+        foregroundRootWindow
+    );
+
+    PrintWindowIdentityForLog(
+        "CursorFlagsChangedDetail.ForegroundRootOwner",
+        foregroundRootOwnerWindow
+    );
+
+    PrintWindowIdentityForLog(
+        "CursorFlagsChangedDetail.WindowFromPoint",
+        windowFromCursorPoint
+    );
+
+    PrintWindowIdentityForLog(
+        "CursorFlagsChangedDetail.RootWindow",
+        rootWindow
+    );
+
+    PrintWindowIdentityForLog(
+        "CursorFlagsChangedDetail.RootOwnerWindow",
+        rootOwnerWindow
+    );
+
+    PrintWindowIdentityForLog(
+        "CursorFlagsChangedDetail.DesktopWindow",
+        desktopWindow
+    );
+
+    PrintWindowIdentityForLog(
+        "CursorFlagsChangedDetail.ShellWindow",
+        shellWindow
+    );
+
+    PrintWindowIdentityForLog(
+        "CursorFlagsChangedDetail.Focus",
+        guiThreadInfo.hwndFocus
+    );
+
+    PrintWindowIdentityForLog(
+        "CursorFlagsChangedDetail.FocusParent",
+        focusParentWindow
+    );
+
+    PrintWindowIdentityForLog(
+        "CursorFlagsChangedDetail.FocusRoot",
+        focusRootWindow
+    );
+
+    PrintWindowIdentityForLog(
+        "CursorFlagsChangedDetail.FocusRootOwner",
+        focusRootOwnerWindow
+    );
+}
+
+static const char* GetPointerInputTypeName(POINTER_INPUT_TYPE type)
+{
+    switch (type)
+    {
+    case PT_POINTER:
+        return "PT_POINTER";
+    case PT_TOUCH:
+        return "PT_TOUCH";
+    case PT_PEN:
+        return "PT_PEN";
+    case PT_MOUSE:
+        return "PT_MOUSE";
+    case PT_TOUCHPAD:
+        return "PT_TOUCHPAD";
+    default:
+        return "PT_UNKNOWN";
+    }
+}
+
+static const char* GetPointerMessageName(UINT message)
+{
+    switch (message)
+    {
+    case WM_POINTERENTER:
+        return "WM_POINTERENTER";
+    case WM_POINTERLEAVE:
+        return "WM_POINTERLEAVE";
+    case WM_POINTERUPDATE:
+        return "WM_POINTERUPDATE";
+    case WM_POINTERDOWN:
+        return "WM_POINTERDOWN";
+    case WM_POINTERUP:
+        return "WM_POINTERUP";
+    case WM_POINTERCAPTURECHANGED:
+        return "WM_POINTERCAPTURECHANGED";
+    default:
+        return "WM_POINTER_UNKNOWN";
+    }
+}
+
+static void PrintPointerSnapshot(
+    const char* label,
+    HWND hwnd,
+    UINT message,
+    WPARAM wParam,
+    LPARAM lParam
+)
+{
+    UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
+
+    POINTER_INPUT_TYPE pointerType = PT_POINTER;
+
+    SetLastError(0);
+
+    BOOL pointerTypeResult = GetPointerType(
+        pointerId,
+        &pointerType
+    );
+
+    DWORD pointerTypeError = GetLastError();
+
+    POINTER_INFO pointerInfo = {};
+
+    SetLastError(0);
+
+    BOOL pointerInfoResult = GetPointerInfo(
+        pointerId,
+        &pointerInfo
+    );
+
+    DWORD pointerInfoError = GetLastError();
+
+    PrintQpcPrefix();
+
+    std::printf(
+        "%s "
+        "Message=%s hwnd=%p wParam=0x%p lParam=0x%p "
+        "PointerId=%u "
+        "PointerTypeResult=%d PointerTypeError=%lu PointerType=%s(%u) "
+        "PointerInfoResult=%d PointerInfoError=%lu "
+        "PointerFlags=0x%08lX "
+        "PointerPixel=(%ld,%ld) "
+        "PointerHimetric=(%ld,%ld) "
+        "TouchActive=%d CooldownActive=%d "
+        "RawMoveCount=%llu RawButtonCount=%llu\n",
+        label,
+        GetPointerMessageName(message),
+        hwnd,
+        reinterpret_cast<void*>(wParam),
+        reinterpret_cast<void*>(lParam),
+        pointerId,
+        pointerTypeResult ? 1 : 0,
+        pointerTypeError,
+        GetPointerInputTypeName(pointerType),
+        static_cast<unsigned int>(pointerType),
+        pointerInfoResult ? 1 : 0,
+        pointerInfoError,
+        pointerInfo.pointerFlags,
+        pointerInfo.ptPixelLocation.x,
+        pointerInfo.ptPixelLocation.y,
+        pointerInfo.ptHimetricLocation.x,
+        pointerInfo.ptHimetricLocation.y,
+        g_IsTouchActive ? 1 : 0,
+        g_IsTouchRecoveryCooldownActive ? 1 : 0,
+        static_cast<unsigned long long>(g_RawMouseMoveCount),
+        static_cast<unsigned long long>(g_RawMouseButtonCount)
+    );
+
+    PrintGuiFocusSnapshot(label);
+}
+
 static bool RegisterRawMouse(HWND hwnd)
 {
     RAWINPUTDEVICE device = {};
@@ -102,6 +870,45 @@ static bool RegisterRawMouse(HWND hwnd)
         1,
         sizeof(RAWINPUTDEVICE)
     ) != FALSE;
+}
+
+static void RegisterPointerInputTargetForObservation(HWND hwnd)
+{
+    SetLastError(0);
+
+    BOOL touchResult = RegisterPointerInputTarget(
+        hwnd,
+        PT_TOUCH
+    );
+
+    DWORD touchError = GetLastError();
+
+    PrintQpcPrefix();
+
+    std::printf(
+        "RegisterPointerInputTarget PT_TOUCH Result=%d GetLastError=%lu hwnd=%p\n",
+        touchResult ? 1 : 0,
+        touchError,
+        hwnd
+    );
+
+    SetLastError(0);
+
+    BOOL penResult = RegisterPointerInputTarget(
+        hwnd,
+        PT_PEN
+    );
+
+    DWORD penError = GetLastError();
+
+    PrintQpcPrefix();
+
+    std::printf(
+        "RegisterPointerInputTarget PT_PEN Result=%d GetLastError=%lu hwnd=%p\n",
+        penResult ? 1 : 0,
+        penError,
+        hwnd
+    );
 }
 
 static bool IsTouchInputProtectionActive()
@@ -258,7 +1065,7 @@ static void ApplyCursorRecovery()
     std::printf("RecoveryFinished\n");
 }
 
-static void HandleRawInput(LPARAM lParam)
+static void HandleRawInput(LPARAM lParam,  LPARAM messageExtraInfo)
 {
     UINT size = 0;
 
@@ -311,6 +1118,10 @@ static void HandleRawInput(LPARAM lParam)
 
     if (raw->header.dwType == RIM_TYPEMOUSE)
     {
+        PrintRawInputDeviceIdentityOnce(
+            raw->header
+        );
+
         const RAWMOUSE& mouse = raw->data.mouse;
 
         bool moved =
@@ -336,11 +1147,85 @@ static void HandleRawInput(LPARAM lParam)
 
         bool protectionActive = IsTouchInputProtectionActive();
 
+        ULONG_PTR extraInfoValue =
+            static_cast<ULONG_PTR>(
+                messageExtraInfo
+                );
+
+        bool hasMiWpSignature =
+            (extraInfoValue & g_MiWpSignatureMask) ==
+            g_MiWpSignature;
+
+        bool hasTouchSignature =
+            hasMiWpSignature &&
+            (extraInfoValue & g_MiWpTouchMask) != 0;
+
+        bool hasPenSignature =
+            hasMiWpSignature &&
+            !hasTouchSignature;
+
+        RawMouseClassification classification =
+            ClassifyRawMouseInput(
+                raw->header,
+                mouse,
+                hasMiWpSignature,
+                hasTouchSignature
+            );
+
+        const char* classificationName =
+            GetRawMouseClassificationName(
+                classification
+            );
+
+        bool isConfirmedTouchPromotion =
+            classification ==
+            RawMouseClassification::
+            ConfirmedTouchPromotion;
+
+        bool legacyAndNewDetectionMatch =
+            isAbsolutePromotedMouse ==
+            isConfirmedTouchPromotion;
+
         PrintQpcPrefix();
 
         std::printf(
-            "RawEnter Flags=0x%04X ButtonFlags=0x%04X "
-            "LastX=%ld LastY=%ld TouchActive=%d CooldownActive=%d ProtectionActive=%d\n",
+            "RawEnter "
+            "DeviceHandle=%p "
+            "DeviceHandleNull=%d "
+            "HeaderType=%lu "
+            "HeaderSize=%lu "
+            "InputCode=0x%p "
+            "MessageExtraInfo=0x%p "
+            "MiWpSignature=%d "
+            "MiWpTouch=%d "
+            "MiWpPen=%d "
+            "LegacyAbsolutePromoted=%d "
+            "ConfirmedTouchPromotion=%d "
+            "LegacyAndNewMatch=%d "
+            "Classification=%s "
+            "Flags=0x%04X "
+            "ButtonFlags=0x%04X "
+            "LastX=%ld LastY=%ld "
+            "TouchActive=%d "
+            "CooldownActive=%d "
+            "ProtectionActive=%d\n",
+            raw->header.hDevice,
+            raw->header.hDevice == nullptr ? 1 : 0,
+            raw->header.dwType,
+            raw->header.dwSize,
+            reinterpret_cast<void*>(
+                raw->header.wParam
+                ),
+            reinterpret_cast<void*>(
+                extraInfoValue
+                ),
+            hasMiWpSignature ? 1 : 0,
+            hasTouchSignature ? 1 : 0,
+            hasPenSignature ? 1 : 0,
+            isAbsolutePromotedMouse ? 1 : 0,
+            isConfirmedTouchPromotion ? 1 : 0,
+            legacyAndNewDetectionMatch ? 1 : 0,
+            classificationName,
             mouse.usFlags,
             mouse.usButtonFlags,
             mouse.lLastX,
@@ -352,10 +1237,21 @@ static void HandleRawInput(LPARAM lParam)
 
         if (isAbsolutePromotedMouse && isLeftButtonDown)
         {
+            PrintGuiFocusSnapshot("BeforeTouchDown");
+
             g_IsTouchActive = true;
 
             PrintQpcPrefix();
-            std::printf("TouchActive=1 by AbsolutePromoted LeftButtonDown\n");
+            std::printf(
+                "TouchActive=1 by AbsolutePromoted LeftButtonDown "
+                "LastRealForegroundHwnd=%p LastRealForegroundThreadId=%lu LastRealForegroundProcessId=%lu LastRealForegroundTitle=\"%ls\"\n",
+                g_LastRealForegroundWindow,
+                g_LastRealForegroundThreadId,
+                g_LastRealForegroundProcessId,
+                g_LastRealForegroundTitle
+            );
+
+            PrintGuiFocusSnapshot("AfterTouchDown");
         }
 
         if (moved)
@@ -512,13 +1408,16 @@ static void PollCursorAndKeys()
     if (GetAsyncKeyState(VK_F8) & 0x0001)
     {
         PrintCursorSnapshot("MARK(F8)", current);
+        PrintGuiFocusSnapshot("MARK(F8)");
     }
 
     if (!g_HasPreviousCursor)
     {
         g_PreviousCursor = current;
         g_HasPreviousCursor = true;
+
         PrintCursorSnapshot("START", current);
+        PrintGuiFocusSnapshot("START");
         return;
     }
 
@@ -552,6 +1451,9 @@ static void PollCursorAndKeys()
             static_cast<unsigned long long>(g_RawMouseMoveCount),
             static_cast<unsigned long long>(g_RawMouseButtonCount)
         );
+
+        PrintGuiFocusSnapshot("CursorFlagsChanged");
+        PrintCursorFlagsChangedDetail();
     }
 
     g_PreviousCursor = current;
@@ -574,12 +1476,83 @@ static LRESULT CALLBACK ReTouchCursorGuardWndProc(
             return -1;
         }
 
+        RegisterPointerInputTargetForObservation(hwnd);
+
         SetTimer(hwnd, 1, 5, nullptr);
         return 0;
 
+    case WM_POINTERENTER:
+        PrintPointerSnapshot(
+            "PointerEnter",
+            hwnd,
+            message,
+            wParam,
+            lParam
+        );
+        break;
+
+    case WM_POINTERLEAVE:
+        PrintPointerSnapshot(
+            "PointerLeave",
+            hwnd,
+            message,
+            wParam,
+            lParam
+        );
+        break;
+
+    case WM_POINTERDOWN:
+        PrintPointerSnapshot(
+            "PointerDown",
+            hwnd,
+            message,
+            wParam,
+            lParam
+        );
+        break;
+
+    case WM_POINTERUPDATE:
+        PrintPointerSnapshot(
+            "PointerUpdate",
+            hwnd,
+            message,
+            wParam,
+            lParam
+        );
+        break;
+
+    case WM_POINTERUP:
+        PrintPointerSnapshot(
+            "PointerUp",
+            hwnd,
+            message,
+            wParam,
+            lParam
+        );
+        break;
+
+    case WM_POINTERCAPTURECHANGED:
+        PrintPointerSnapshot(
+            "PointerCaptureChanged",
+            hwnd,
+            message,
+            wParam,
+            lParam
+        );
+        break;
+
     case WM_INPUT:
-        HandleRawInput(lParam);
+    {
+        const LPARAM messageExtraInfo =
+            GetMessageExtraInfo();
+
+        HandleRawInput(
+            lParam,
+            messageExtraInfo
+        );
+
         return 0;
+    }
 
     case WM_TIMER:
         PollCursorAndKeys();
