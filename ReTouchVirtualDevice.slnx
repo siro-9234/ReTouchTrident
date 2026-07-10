@@ -29,5 +29,8 @@
   <Project Path="TridentHidIoctlAnalyzer/TridentHidIoctlAnalyzer.vcxproj" Id="96f6b711-dffc-447d-8c47-0cf6284959f2">
     <Platform Project="x64" />
   </Project>
+  <Project Path="TridentInputHook/TridentInputHook.vcxproj" Id="47bbc61b-1855-4bb5-9e1e-6db1a3049530">
+    <Platform Project="x64" />
+  </Project>
   <Project Path="user/user.csproj" />
 </Solution>
