@@ -49,6 +49,9 @@ static DWORD g_LastRealForegroundThreadId = 0;
 static DWORD g_LastRealForegroundProcessId = 0;
 static wchar_t g_LastRealForegroundTitle[256] = {};
 
+static HWINEVENTHOOK g_ForegroundWinEventHook = nullptr;
+static HWINEVENTHOOK g_FocusWinEventHook = nullptr;
+
 static void PrintQpcPrefix()
 {
     LARGE_INTEGER counter = {};
@@ -574,6 +577,274 @@ static void PrintWindowIdentityForLog(
         className,
         title
     );
+}
+
+static const char* GetWinEventName(
+    DWORD event
+)
+{
+    switch (event)
+    {
+    case EVENT_SYSTEM_FOREGROUND:
+        return "EVENT_SYSTEM_FOREGROUND";
+
+    case EVENT_OBJECT_FOCUS:
+        return "EVENT_OBJECT_FOCUS";
+
+    default:
+        return "UNKNOWN_WIN_EVENT";
+    }
+}
+
+static void CALLBACK ReTouchWinEventProc(
+    HWINEVENTHOOK hook,
+    DWORD event,
+    HWND hwnd,
+    LONG objectId,
+    LONG childId,
+    DWORD eventThreadId,
+    DWORD eventTimeMilliseconds
+)
+{
+    DWORD processId = 0;
+
+    if (hwnd != nullptr)
+    {
+        GetWindowThreadProcessId(
+            hwnd,
+            &processId
+        );
+    }
+
+    HWND currentForegroundWindow =
+        GetForegroundWindow();
+
+    CURSORINFO cursorInfo = {};
+    cursorInfo.cbSize = sizeof(CURSORINFO);
+
+    SetLastError(0);
+
+    BOOL cursorInfoResult =
+        GetCursorInfo(
+            &cursorInfo
+        );
+
+    DWORD cursorInfoError =
+        GetLastError();
+
+    PrintQpcPrefix();
+
+    std::printf(
+        "WinEvent "
+        "Event=%s "
+        "EventValue=0x%08lX "
+        "Hook=%p "
+        "Hwnd=%p "
+        "ObjectId=%ld "
+        "ChildId=%ld "
+        "EventThreadId=%lu "
+        "EventProcessId=%lu "
+        "EventTimeMs=%lu "
+        "CurrentForegroundHwnd=%p "
+        "CursorInfoResult=%d "
+        "CursorInfoError=%lu "
+        "CursorFlags=0x%08lX "
+        "CursorPos=(%ld,%ld) "
+        "TouchActive=%d "
+        "CooldownActive=%d "
+        "RawMoveCount=%llu "
+        "RawButtonCount=%llu\n",
+        GetWinEventName(event),
+        event,
+        hook,
+        hwnd,
+        objectId,
+        childId,
+        eventThreadId,
+        processId,
+        eventTimeMilliseconds,
+        currentForegroundWindow,
+        cursorInfoResult ? 1 : 0,
+        cursorInfoError,
+        cursorInfo.flags,
+        cursorInfo.ptScreenPos.x,
+        cursorInfo.ptScreenPos.y,
+        g_IsTouchActive ? 1 : 0,
+        g_IsTouchRecoveryCooldownActive ? 1 : 0,
+        static_cast<unsigned long long>(
+            g_RawMouseMoveCount
+            ),
+        static_cast<unsigned long long>(
+            g_RawMouseButtonCount
+            )
+    );
+
+    PrintWindowIdentityForLog(
+        "WinEvent.Target",
+        hwnd
+    );
+
+    if (currentForegroundWindow != hwnd)
+    {
+        PrintWindowIdentityForLog(
+            "WinEvent.CurrentForeground",
+            currentForegroundWindow
+        );
+    }
+}
+
+static bool RegisterWinEventHooks()
+{
+    constexpr DWORD hookFlags =
+        WINEVENT_OUTOFCONTEXT |
+        WINEVENT_SKIPOWNPROCESS;
+
+    SetLastError(0);
+
+    g_ForegroundWinEventHook =
+        SetWinEventHook(
+            EVENT_SYSTEM_FOREGROUND,
+            EVENT_SYSTEM_FOREGROUND,
+            nullptr,
+            ReTouchWinEventProc,
+            0,
+            0,
+            hookFlags
+        );
+
+    DWORD foregroundHookError =
+        GetLastError();
+
+    PrintQpcPrefix();
+
+    std::printf(
+        "SetWinEventHook "
+        "Event=EVENT_SYSTEM_FOREGROUND "
+        "Result=%p "
+        "GetLastError=%lu "
+        "Flags=0x%08lX\n",
+        g_ForegroundWinEventHook,
+        foregroundHookError,
+        hookFlags
+    );
+
+    SetLastError(0);
+
+    g_FocusWinEventHook =
+        SetWinEventHook(
+            EVENT_OBJECT_FOCUS,
+            EVENT_OBJECT_FOCUS,
+            nullptr,
+            ReTouchWinEventProc,
+            0,
+            0,
+            hookFlags
+        );
+
+    DWORD focusHookError =
+        GetLastError();
+
+    PrintQpcPrefix();
+
+    std::printf(
+        "SetWinEventHook "
+        "Event=EVENT_OBJECT_FOCUS "
+        "Result=%p "
+        "GetLastError=%lu "
+        "Flags=0x%08lX\n",
+        g_FocusWinEventHook,
+        focusHookError,
+        hookFlags
+    );
+
+    if (g_ForegroundWinEventHook != nullptr &&
+        g_FocusWinEventHook != nullptr)
+    {
+        return true;
+    }
+
+    if (g_ForegroundWinEventHook != nullptr)
+    {
+        UnhookWinEvent(
+            g_ForegroundWinEventHook
+        );
+
+        g_ForegroundWinEventHook =
+            nullptr;
+    }
+
+    if (g_FocusWinEventHook != nullptr)
+    {
+        UnhookWinEvent(
+            g_FocusWinEventHook
+        );
+
+        g_FocusWinEventHook =
+            nullptr;
+    }
+
+    return false;
+}
+
+static void UnregisterWinEventHooks()
+{
+    if (g_FocusWinEventHook != nullptr)
+    {
+        SetLastError(0);
+
+        BOOL focusUnhookResult =
+            UnhookWinEvent(
+                g_FocusWinEventHook
+            );
+
+        DWORD focusUnhookError =
+            GetLastError();
+
+        PrintQpcPrefix();
+
+        std::printf(
+            "UnhookWinEvent "
+            "Event=EVENT_OBJECT_FOCUS "
+            "Result=%d "
+            "GetLastError=%lu "
+            "Hook=%p\n",
+            focusUnhookResult ? 1 : 0,
+            focusUnhookError,
+            g_FocusWinEventHook
+        );
+
+        g_FocusWinEventHook =
+            nullptr;
+    }
+
+    if (g_ForegroundWinEventHook != nullptr)
+    {
+        SetLastError(0);
+
+        BOOL foregroundUnhookResult =
+            UnhookWinEvent(
+                g_ForegroundWinEventHook
+            );
+
+        DWORD foregroundUnhookError =
+            GetLastError();
+
+        PrintQpcPrefix();
+
+        std::printf(
+            "UnhookWinEvent "
+            "Event=EVENT_SYSTEM_FOREGROUND "
+            "Result=%d "
+            "GetLastError=%lu "
+            "Hook=%p\n",
+            foregroundUnhookResult ? 1 : 0,
+            foregroundUnhookError,
+            g_ForegroundWinEventHook
+        );
+
+        g_ForegroundWinEventHook =
+            nullptr;
+    }
 }
 
 static void PrintCursorFlagsChangedDetail()
@@ -1471,14 +1742,43 @@ static LRESULT CALLBACK ReTouchCursorGuardWndProc(
     case WM_CREATE:
         if (!RegisterRawMouse(hwnd))
         {
-            std::printf("RegisterRawInputDevices failed. GetLastError=%lu\n", GetLastError());
+            std::printf(
+                "RegisterRawInputDevices failed. "
+                "GetLastError=%lu\n",
+                GetLastError()
+            );
+
             PostQuitMessage(1);
             return -1;
         }
 
-        RegisterPointerInputTargetForObservation(hwnd);
+        RegisterPointerInputTargetForObservation(
+            hwnd
+        );
 
-        SetTimer(hwnd, 1, 5, nullptr);
+        if (!RegisterWinEventHooks())
+        {
+            PrintQpcPrefix();
+
+            std::printf(
+                "RegisterWinEventHooks failed. "
+                "ForegroundHook=%p "
+                "FocusHook=%p\n",
+                g_ForegroundWinEventHook,
+                g_FocusWinEventHook
+            );
+
+            PostQuitMessage(1);
+            return -1;
+        }
+
+        SetTimer(
+            hwnd,
+            1,
+            5,
+            nullptr
+        );
+
         return 0;
 
     case WM_POINTERENTER:
@@ -1559,7 +1859,13 @@ static LRESULT CALLBACK ReTouchCursorGuardWndProc(
         return 0;
 
     case WM_DESTROY:
-        KillTimer(hwnd, 1);
+        KillTimer(
+            hwnd,
+            1
+        );
+
+        UnregisterWinEventHooks();
+
         PostQuitMessage(0);
         return 0;
     }
