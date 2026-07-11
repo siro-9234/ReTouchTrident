@@ -1,8 +1,11 @@
 ﻿#include <windows.h>
 #include <cstdio>
 #include <cstdint>
+#include <cwchar>
 #include <unordered_set>
 #include <vector>
+
+#include "../TridentInputHook/TridentInputHook.h"
 struct CursorSnapshot
 {
     LARGE_INTEGER Counter;
@@ -51,6 +54,31 @@ static wchar_t g_LastRealForegroundTitle[256] = {};
 
 static HWINEVENTHOOK g_ForegroundWinEventHook = nullptr;
 static HWINEVENTHOOK g_FocusWinEventHook = nullptr;
+
+using TridentInstallCbtHookFunction =
+BOOL(WINAPI*)();
+
+using TridentUninstallCbtHookFunction =
+BOOL(WINAPI*)();
+
+static HANDLE g_TridentHookSharedMapping = nullptr;
+
+static TridentHookSharedState*
+g_TridentHookSharedState = nullptr;
+
+static HMODULE g_TridentInputHookModule = nullptr;
+
+static TridentInstallCbtHookFunction
+g_TridentInstallCbtHook = nullptr;
+
+static TridentUninstallCbtHookFunction
+g_TridentUninstallCbtHook = nullptr;
+
+static bool g_IsTridentCbtHookInstalled = false;
+
+static LONG64 g_LastConsumedTridentHookSequence = 0;
+
+static uint64_t g_TridentHookDroppedByReaderCount = 0;
 
 static void PrintQpcPrefix()
 {
@@ -844,6 +872,866 @@ static void UnregisterWinEventHooks()
 
         g_ForegroundWinEventHook =
             nullptr;
+    }
+}
+
+static const char* GetTridentHookEventTypeName(
+    TridentHookEventType eventType
+)
+{
+    switch (eventType)
+    {
+    case TridentHookEventType::CbtActivate:
+        return "HCBT_ACTIVATE";
+
+    case TridentHookEventType::CbtSetFocus:
+        return "HCBT_SETFOCUS";
+
+    case TridentHookEventType::None:
+        return "None";
+
+    default:
+        return "UnknownTridentHookEvent";
+    }
+}
+
+static bool BuildTridentInputHookDllPath(
+    wchar_t* path,
+    size_t pathCharacterCount
+)
+{
+    if (path == nullptr ||
+        pathCharacterCount == 0)
+    {
+        return false;
+    }
+
+    path[0] = L'\0';
+
+    DWORD copiedCharacterCount =
+        GetModuleFileNameW(
+            nullptr,
+            path,
+            static_cast<DWORD>(
+                pathCharacterCount
+                )
+        );
+
+    if (copiedCharacterCount == 0 ||
+        copiedCharacterCount >=
+        pathCharacterCount)
+    {
+        return false;
+    }
+
+    wchar_t* finalBackslash =
+        wcsrchr(
+            path,
+            L'\\'
+        );
+
+    if (finalBackslash == nullptr)
+    {
+        return false;
+    }
+
+    *(finalBackslash + 1) = L'\0';
+
+    errno_t concatenateResult =
+        wcscat_s(
+            path,
+            pathCharacterCount,
+            L"TridentInputHook.dll"
+        );
+
+    return concatenateResult == 0;
+}
+
+static bool InitializeTridentHookSharedMemory()
+{
+    if (g_TridentHookSharedMapping != nullptr ||
+        g_TridentHookSharedState != nullptr)
+    {
+        return false;
+    }
+
+    using ConvertSecurityDescriptorFunction =
+        BOOL(WINAPI*)(
+            LPCWSTR,
+            DWORD,
+            PSECURITY_DESCRIPTOR*,
+            PULONG
+            );
+
+    HMODULE advapiModule =
+        LoadLibraryW(
+            L"Advapi32.dll"
+        );
+
+    if (advapiModule == nullptr)
+    {
+        PrintQpcPrefix();
+
+        std::printf(
+            "LoadLibraryW Advapi32.dll failed. "
+            "GetLastError=%lu\n",
+            GetLastError()
+        );
+
+        return false;
+    }
+
+    FARPROC conversionAddress =
+        GetProcAddress(
+            advapiModule,
+            "ConvertStringSecurityDescriptorToSecurityDescriptorW"
+        );
+
+    if (conversionAddress == nullptr)
+    {
+        PrintQpcPrefix();
+
+        std::printf(
+            "GetProcAddress "
+            "ConvertStringSecurityDescriptorToSecurityDescriptorW "
+            "failed. GetLastError=%lu\n",
+            GetLastError()
+        );
+
+        FreeLibrary(
+            advapiModule
+        );
+
+        return false;
+    }
+
+    auto convertSecurityDescriptor =
+        reinterpret_cast<
+        ConvertSecurityDescriptorFunction
+        >(
+            conversionAddress
+            );
+
+    PSECURITY_DESCRIPTOR securityDescriptor =
+        nullptr;
+
+    ULONG securityDescriptorSize =
+        0;
+
+    constexpr wchar_t securityDescriptorString[] =
+        L"D:"
+        L"(A;;GA;;;SY)"
+        L"(A;;GA;;;BA)"
+        L"(A;;GRGW;;;IU)"
+        L"S:"
+        L"(ML;;NW;;;LW)";
+
+    SetLastError(0);
+
+    BOOL conversionResult =
+        convertSecurityDescriptor(
+            securityDescriptorString,
+            1,
+            &securityDescriptor,
+            &securityDescriptorSize
+        );
+
+    DWORD conversionError =
+        GetLastError();
+
+    PrintQpcPrefix();
+
+    std::printf(
+        "ConvertSharedMemorySecurityDescriptor "
+        "Result=%d "
+        "GetLastError=%lu "
+        "Size=%lu\n",
+        conversionResult ? 1 : 0,
+        conversionError,
+        securityDescriptorSize
+    );
+
+    if (!conversionResult ||
+        securityDescriptor == nullptr)
+    {
+        FreeLibrary(
+            advapiModule
+        );
+
+        return false;
+    }
+
+    SECURITY_ATTRIBUTES securityAttributes = {};
+    securityAttributes.nLength =
+        sizeof(SECURITY_ATTRIBUTES);
+    securityAttributes.lpSecurityDescriptor =
+        securityDescriptor;
+    securityAttributes.bInheritHandle =
+        FALSE;
+
+    SetLastError(0);
+
+    HANDLE mapping =
+        CreateFileMappingW(
+            INVALID_HANDLE_VALUE,
+            &securityAttributes,
+            PAGE_READWRITE,
+            0,
+            static_cast<DWORD>(
+                sizeof(
+                    TridentHookSharedState
+                    )
+                ),
+            TRIDENT_INPUT_HOOK_SHARED_MEMORY_NAME
+        );
+
+    DWORD createMappingError =
+        GetLastError();
+
+    LocalFree(
+        securityDescriptor
+    );
+
+    securityDescriptor =
+        nullptr;
+
+    FreeLibrary(
+        advapiModule
+    );
+
+    advapiModule =
+        nullptr;
+
+    PrintQpcPrefix();
+
+    std::printf(
+        "CreateFileMapping "
+        "Name=\"%ls\" "
+        "Result=%p "
+        "GetLastError=%lu "
+        "Size=%zu "
+        "ExplicitSecurity=1\n",
+        TRIDENT_INPUT_HOOK_SHARED_MEMORY_NAME,
+        mapping,
+        createMappingError,
+        sizeof(
+            TridentHookSharedState
+            )
+    );
+
+    if (mapping == nullptr)
+    {
+        return false;
+    }
+
+    if (createMappingError ==
+        ERROR_ALREADY_EXISTS)
+    {
+        PrintQpcPrefix();
+
+        std::printf(
+            "CreateFileMapping rejected. "
+            "Another Trident hook shared state "
+            "already exists.\n"
+        );
+
+        CloseHandle(
+            mapping
+        );
+
+        return false;
+    }
+
+    SetLastError(0);
+
+    void* mappedView =
+        MapViewOfFile(
+            mapping,
+            FILE_MAP_READ |
+            FILE_MAP_WRITE,
+            0,
+            0,
+            sizeof(
+                TridentHookSharedState
+                )
+        );
+
+    DWORD mapViewError =
+        GetLastError();
+
+    PrintQpcPrefix();
+
+    std::printf(
+        "MapViewOfFile "
+        "Result=%p "
+        "GetLastError=%lu "
+        "Size=%zu\n",
+        mappedView,
+        mapViewError,
+        sizeof(
+            TridentHookSharedState
+            )
+    );
+
+    if (mappedView == nullptr)
+    {
+        CloseHandle(
+            mapping
+        );
+
+        return false;
+    }
+
+    TridentHookSharedState* sharedState =
+        static_cast<
+        TridentHookSharedState*
+        >(
+            mappedView
+            );
+
+    ZeroMemory(
+        sharedState,
+        sizeof(
+            TridentHookSharedState
+            )
+    );
+
+    sharedState->Signature =
+        TRIDENT_INPUT_HOOK_SHARED_SIGNATURE;
+
+    sharedState->Version =
+        TRIDENT_INPUT_HOOK_SHARED_VERSION;
+
+    sharedState->Capacity =
+        TRIDENT_INPUT_HOOK_EVENT_CAPACITY;
+
+    sharedState->Reserved =
+        0;
+
+    InterlockedExchange64(
+        &sharedState->WriteSequence,
+        0
+    );
+
+    g_TridentHookSharedMapping =
+        mapping;
+
+    g_TridentHookSharedState =
+        sharedState;
+
+    g_LastConsumedTridentHookSequence =
+        0;
+
+    g_TridentHookDroppedByReaderCount =
+        0;
+
+    PrintQpcPrefix();
+
+    std::printf(
+        "TridentHookSharedMemory initialized "
+        "Signature=0x%08X "
+        "Version=%u "
+        "Capacity=%u\n",
+        sharedState->Signature,
+        sharedState->Version,
+        sharedState->Capacity
+    );
+
+    return true;
+}
+
+static bool LoadAndInstallTridentCbtHook()
+{
+    if (g_TridentHookSharedState == nullptr)
+    {
+        return false;
+    }
+
+    wchar_t dllPath[MAX_PATH] = {};
+
+    if (!BuildTridentInputHookDllPath(
+        dllPath,
+        sizeof(dllPath) /
+        sizeof(dllPath[0])
+    ))
+    {
+        PrintQpcPrefix();
+
+        std::printf(
+            "BuildTridentInputHookDllPath failed. "
+            "GetLastError=%lu\n",
+            GetLastError()
+        );
+
+        return false;
+    }
+
+    SetLastError(0);
+
+    HMODULE hookModule =
+        LoadLibraryW(
+            dllPath
+        );
+
+    DWORD loadLibraryError =
+        GetLastError();
+
+    PrintQpcPrefix();
+
+    std::printf(
+        "LoadLibraryW "
+        "Path=\"%ls\" "
+        "Result=%p "
+        "GetLastError=%lu\n",
+        dllPath,
+        hookModule,
+        loadLibraryError
+    );
+
+    if (hookModule == nullptr)
+    {
+        return false;
+    }
+
+    FARPROC installAddress =
+        GetProcAddress(
+            hookModule,
+            "TridentInstallCbtHook"
+        );
+
+    DWORD installAddressError =
+        GetLastError();
+
+    FARPROC uninstallAddress =
+        GetProcAddress(
+            hookModule,
+            "TridentUninstallCbtHook"
+        );
+
+    DWORD uninstallAddressError =
+        GetLastError();
+
+    PrintQpcPrefix();
+
+    std::printf(
+        "GetProcAddress "
+        "Install=%p InstallError=%lu "
+        "Uninstall=%p UninstallError=%lu\n",
+        installAddress,
+        installAddressError,
+        uninstallAddress,
+        uninstallAddressError
+    );
+
+    if (installAddress == nullptr ||
+        uninstallAddress == nullptr)
+    {
+        FreeLibrary(
+            hookModule
+        );
+
+        return false;
+    }
+
+    auto installFunction =
+        reinterpret_cast<
+        TridentInstallCbtHookFunction
+        >(
+            installAddress
+            );
+
+    auto uninstallFunction =
+        reinterpret_cast<
+        TridentUninstallCbtHookFunction
+        >(
+            uninstallAddress
+            );
+
+    SetLastError(0);
+
+    BOOL installResult =
+        installFunction();
+
+    DWORD installError =
+        GetLastError();
+
+    PrintQpcPrefix();
+
+    std::printf(
+        "TridentInstallCbtHook "
+        "Result=%d "
+        "GetLastError=%lu\n",
+        installResult ? 1 : 0,
+        installError
+    );
+
+    if (!installResult)
+    {
+        FreeLibrary(
+            hookModule
+        );
+
+        return false;
+    }
+
+    g_TridentInputHookModule =
+        hookModule;
+
+    g_TridentInstallCbtHook =
+        installFunction;
+
+    g_TridentUninstallCbtHook =
+        uninstallFunction;
+
+    g_IsTridentCbtHookInstalled =
+        true;
+
+    return true;
+}
+
+static void DrainTridentHookEvents()
+{
+    TridentHookSharedState* sharedState =
+        g_TridentHookSharedState;
+
+    if (sharedState == nullptr)
+    {
+        return;
+    }
+
+    LONG64 newestSequence =
+        InterlockedCompareExchange64(
+            &sharedState->WriteSequence,
+            0,
+            0
+        );
+
+    if (newestSequence <=
+        g_LastConsumedTridentHookSequence)
+    {
+        return;
+    }
+
+    LONG64 firstSequence =
+        g_LastConsumedTridentHookSequence + 1;
+
+    const LONG64 capacity =
+        static_cast<LONG64>(
+            TRIDENT_INPUT_HOOK_EVENT_CAPACITY
+            );
+
+    const LONG64 oldestAvailableSequence =
+        newestSequence - capacity + 1;
+
+    if (firstSequence <
+        oldestAvailableSequence)
+    {
+        const LONG64 droppedCount =
+            oldestAvailableSequence -
+            firstSequence;
+
+        g_TridentHookDroppedByReaderCount +=
+            static_cast<uint64_t>(
+                droppedCount
+                );
+
+        PrintQpcPrefix();
+
+        std::printf(
+            "TridentCbtReaderOverrun "
+            "DroppedNow=%lld "
+            "DroppedTotal=%llu "
+            "RequestedFirst=%lld "
+            "OldestAvailable=%lld "
+            "Newest=%lld\n",
+            droppedCount,
+            static_cast<unsigned long long>(
+                g_TridentHookDroppedByReaderCount
+                ),
+            firstSequence,
+            oldestAvailableSequence,
+            newestSequence
+        );
+
+        firstSequence =
+            oldestAvailableSequence;
+    }
+
+    for (LONG64 sequence = firstSequence;
+        sequence <= newestSequence;
+        ++sequence)
+    {
+        const std::uint32_t slotIndex =
+            static_cast<std::uint32_t>(
+                (sequence - 1) %
+                TRIDENT_INPUT_HOOK_EVENT_CAPACITY
+                );
+
+        TridentHookEvent* sourceEvent =
+            &sharedState->Events[
+                slotIndex
+            ];
+
+        LONG64 committedBefore =
+            InterlockedCompareExchange64(
+                &sourceEvent->CommittedSequence,
+                0,
+                0
+            );
+
+        if (committedBefore != sequence)
+        {
+            continue;
+        }
+
+        TridentHookEvent eventCopy = {};
+
+        eventCopy.Qpc =
+            sourceEvent->Qpc;
+
+        eventCopy.EventType =
+            sourceEvent->EventType;
+
+        eventCopy.HookCode =
+            sourceEvent->HookCode;
+
+        eventCopy.TargetHwnd =
+            sourceEvent->TargetHwnd;
+
+        eventCopy.OtherHwnd =
+            sourceEvent->OtherHwnd;
+
+        eventCopy.ThreadId =
+            sourceEvent->ThreadId;
+
+        eventCopy.ProcessId =
+            sourceEvent->ProcessId;
+
+        eventCopy.MouseActivation =
+            sourceEvent->MouseActivation;
+
+        eventCopy.CursorInfoValid =
+            sourceEvent->CursorInfoValid;
+
+        eventCopy.CursorFlags =
+            sourceEvent->CursorFlags;
+
+        eventCopy.CursorX =
+            sourceEvent->CursorX;
+
+        eventCopy.CursorY =
+            sourceEvent->CursorY;
+
+        MemoryBarrier();
+
+        LONG64 committedAfter =
+            InterlockedCompareExchange64(
+                &sourceEvent->CommittedSequence,
+                0,
+                0
+            );
+
+        if (committedAfter != sequence)
+        {
+            continue;
+        }
+
+        const TridentHookEventType eventType =
+            static_cast<
+            TridentHookEventType
+            >(
+                eventCopy.EventType
+                );
+
+        HWND targetWindow =
+            reinterpret_cast<HWND>(
+                static_cast<ULONG_PTR>(
+                    eventCopy.TargetHwnd
+                    )
+                );
+
+        HWND otherWindow =
+            reinterpret_cast<HWND>(
+                static_cast<ULONG_PTR>(
+                    eventCopy.OtherHwnd
+                    )
+                );
+
+        std::printf(
+            "[QPC=%lld Freq=10000000] "
+            "TridentCbt "
+            "Sequence=%lld "
+            "Event=%s "
+            "HookCode=%d "
+            "TargetHwnd=%p "
+            "OtherHwnd=%p "
+            "ThreadId=%lu "
+            "ProcessId=%lu "
+            "MouseActivation=%u "
+            "CursorInfoValid=%u "
+            "CursorFlags=0x%08X "
+            "CursorPos=(%ld,%ld) "
+            "ReaderDroppedTotal=%llu\n",
+            eventCopy.Qpc,
+            sequence,
+            GetTridentHookEventTypeName(
+                eventType
+            ),
+            eventCopy.HookCode,
+            targetWindow,
+            otherWindow,
+            eventCopy.ThreadId,
+            eventCopy.ProcessId,
+            eventCopy.MouseActivation,
+            eventCopy.CursorInfoValid,
+            eventCopy.CursorFlags,
+            eventCopy.CursorX,
+            eventCopy.CursorY,
+            static_cast<unsigned long long>(
+                g_TridentHookDroppedByReaderCount
+                )
+        );
+
+        PrintWindowIdentityForLog(
+            "TridentCbt.Target",
+            targetWindow
+        );
+
+        if (otherWindow != nullptr)
+        {
+            PrintWindowIdentityForLog(
+                "TridentCbt.Other",
+                otherWindow
+            );
+        }
+
+        g_LastConsumedTridentHookSequence =
+            sequence;
+    }
+}
+
+static void ShutdownTridentCbtObservation()
+{
+    if (g_IsTridentCbtHookInstalled &&
+        g_TridentUninstallCbtHook != nullptr)
+    {
+        SetLastError(0);
+
+        BOOL uninstallResult =
+            g_TridentUninstallCbtHook();
+
+        DWORD uninstallError =
+            GetLastError();
+
+        PrintQpcPrefix();
+
+        std::printf(
+            "TridentUninstallCbtHook "
+            "Result=%d "
+            "GetLastError=%lu\n",
+            uninstallResult ? 1 : 0,
+            uninstallError
+        );
+
+        if (uninstallResult)
+        {
+            g_IsTridentCbtHookInstalled =
+                false;
+        }
+    }
+
+    if (g_TridentInputHookModule != nullptr &&
+        !g_IsTridentCbtHookInstalled)
+    {
+        SetLastError(0);
+
+        BOOL freeLibraryResult =
+            FreeLibrary(
+                g_TridentInputHookModule
+            );
+
+        DWORD freeLibraryError =
+            GetLastError();
+
+        PrintQpcPrefix();
+
+        std::printf(
+            "FreeLibrary TridentInputHook "
+            "Result=%d "
+            "GetLastError=%lu\n",
+            freeLibraryResult ? 1 : 0,
+            freeLibraryError
+        );
+
+        if (freeLibraryResult)
+        {
+            g_TridentInputHookModule =
+                nullptr;
+
+            g_TridentInstallCbtHook =
+                nullptr;
+
+            g_TridentUninstallCbtHook =
+                nullptr;
+        }
+    }
+
+    if (g_TridentHookSharedState != nullptr)
+    {
+        SetLastError(0);
+
+        BOOL unmapResult =
+            UnmapViewOfFile(
+                g_TridentHookSharedState
+            );
+
+        DWORD unmapError =
+            GetLastError();
+
+        PrintQpcPrefix();
+
+        std::printf(
+            "UnmapViewOfFile TridentHook "
+            "Result=%d "
+            "GetLastError=%lu\n",
+            unmapResult ? 1 : 0,
+            unmapError
+        );
+
+        if (unmapResult)
+        {
+            g_TridentHookSharedState =
+                nullptr;
+        }
+    }
+
+    if (g_TridentHookSharedMapping != nullptr)
+    {
+        SetLastError(0);
+
+        BOOL closeMappingResult =
+            CloseHandle(
+                g_TridentHookSharedMapping
+            );
+
+        DWORD closeMappingError =
+            GetLastError();
+
+        PrintQpcPrefix();
+
+        std::printf(
+            "CloseHandle TridentHookMapping "
+            "Result=%d "
+            "GetLastError=%lu\n",
+            closeMappingResult ? 1 : 0,
+            closeMappingError
+        );
+
+        if (closeMappingResult)
+        {
+            g_TridentHookSharedMapping =
+                nullptr;
+        }
     }
 }
 
@@ -1772,6 +2660,35 @@ static LRESULT CALLBACK ReTouchCursorGuardWndProc(
             return -1;
         }
 
+        if (!InitializeTridentHookSharedMemory())
+        {
+            PrintQpcPrefix();
+
+            std::printf(
+                "InitializeTridentHookSharedMemory failed.\n"
+            );
+
+            UnregisterWinEventHooks();
+
+            PostQuitMessage(1);
+            return -1;
+        }
+
+        if (!LoadAndInstallTridentCbtHook())
+        {
+            PrintQpcPrefix();
+
+            std::printf(
+                "LoadAndInstallTridentCbtHook failed.\n"
+            );
+
+            ShutdownTridentCbtObservation();
+            UnregisterWinEventHooks();
+
+            PostQuitMessage(1);
+            return -1;
+        }
+
         SetTimer(
             hwnd,
             1,
@@ -1855,6 +2772,7 @@ static LRESULT CALLBACK ReTouchCursorGuardWndProc(
     }
 
     case WM_TIMER:
+        DrainTridentHookEvents();
         PollCursorAndKeys();
         return 0;
 
@@ -1863,6 +2781,10 @@ static LRESULT CALLBACK ReTouchCursorGuardWndProc(
             hwnd,
             1
         );
+
+        DrainTridentHookEvents();
+
+        ShutdownTridentCbtObservation();
 
         UnregisterWinEventHooks();
 

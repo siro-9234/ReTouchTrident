@@ -29,9 +29,10 @@ namespace
             return currentState;
         }
 
+        SetLastError(0);
+
         HANDLE mappingHandle =
             OpenFileMappingW(
-                FILE_MAP_READ |
                 FILE_MAP_WRITE,
                 FALSE,
                 TRIDENT_INPUT_HOOK_SHARED_MEMORY_NAME
@@ -42,10 +43,11 @@ namespace
             return nullptr;
         }
 
+        SetLastError(0);
+
         void* mappedView =
             MapViewOfFile(
                 mappingHandle,
-                FILE_MAP_READ |
                 FILE_MAP_WRITE,
                 0,
                 0,
@@ -57,6 +59,9 @@ namespace
         CloseHandle(
             mappingHandle
         );
+
+        mappingHandle =
+            nullptr;
 
         if (mappedView == nullptr)
         {

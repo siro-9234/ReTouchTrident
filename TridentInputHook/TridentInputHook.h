@@ -59,6 +59,11 @@ struct alignas(8) TridentHookSharedState
     std::uint32_t Capacity;
     std::uint32_t Reserved;
 
+    volatile LONG InstallAttempted;
+    volatile LONG InstallSucceeded;
+    volatile LONG InstallLastError;
+    volatile LONG64 InstalledHookValue;
+
     volatile LONG64 WriteSequence;
 
     TridentHookEvent
