@@ -903,6 +903,9 @@ static const char* GetTridentHookEventTypeName(
     case TridentHookEventType::CallWndProcMessage:
         return "WH_CALLWNDPROC";
 
+    case TridentHookEventType::GetMessage:
+        return "WH_GETMESSAGE";
+
     case TridentHookEventType::None:
         return "None";
 
@@ -937,6 +940,24 @@ static const char* GetObservedWindowMessageName(
 
     case WM_SETCURSOR:
         return "WM_SETCURSOR";
+
+    case WM_POINTERENTER:
+        return "WM_POINTERENTER";
+
+    case WM_POINTERDOWN:
+        return "WM_POINTERDOWN";
+
+    case WM_POINTERUPDATE:
+        return "WM_POINTERUPDATE";
+
+    case WM_POINTERUP:
+        return "WM_POINTERUP";
+
+    case WM_POINTERLEAVE:
+        return "WM_POINTERLEAVE";
+
+    case WM_POINTERCAPTURECHANGED:
+        return "WM_POINTERCAPTURECHANGED";
 
     default:
         return "UNKNOWN_WINDOW_MESSAGE";
@@ -1449,6 +1470,14 @@ static bool LoadAndInstallTridentObservationHooks()
             0
         );
 
+    LONG64 installedGetMessageHookValue =
+        InterlockedCompareExchange64(
+            &g_TridentHookSharedState->
+            InstalledGetMessageHookValue,
+            0,
+            0
+        );
+
     PrintQpcPrefix();
 
     std::printf(
@@ -1459,7 +1488,8 @@ static bool LoadAndInstallTridentObservationHooks()
         "InstallSucceeded=%ld "
         "SharedInstallLastError=%ld "
         "CbtHook=0x%016llX "
-        "CallWndProcHook=0x%016llX\n",
+        "CallWndProcHook=0x%016llX "
+        "GetMessageHook=0x%016llX\n",
         installResult ? 1 : 0,
         installError,
         installAttempted,
@@ -1470,6 +1500,9 @@ static bool LoadAndInstallTridentObservationHooks()
             ),
         static_cast<unsigned long long>(
             installedCallWndProcHookValue
+            ),
+        static_cast<unsigned long long>(
+            installedGetMessageHookValue
             )
     );
 
@@ -1622,6 +1655,9 @@ static void DrainTridentHookEvents()
             sourceEvent->
             CallWndProcSentByCurrentThread;
 
+        eventCopy.GetMessageRemoved =
+            sourceEvent->GetMessageRemoved;
+
         eventCopy.Message =
             sourceEvent->Message;
 
@@ -1734,6 +1770,61 @@ static void DrainTridentHookEvents()
 
             PrintWindowIdentityForLog(
                 "TridentCallWndProc.Target",
+                targetWindow
+            );
+        }
+        else if (eventType ==
+            TridentHookEventType::
+            GetMessage)
+        {
+            const UINT message =
+                eventCopy.Message;
+
+            std::printf(
+                "[QPC=%lld Freq=10000000] "
+                "TridentGetMessage "
+                "Sequence=%lld "
+                "HookCode=%d "
+                "Message=%s "
+                "MessageValue=0x%04X "
+                "TargetHwnd=%p "
+                "ThreadId=%lu "
+                "ProcessId=%lu "
+                "Removed=%u "
+                "MessageWParam=0x%016llX "
+                "MessageLParam=0x%016llX "
+                "CursorInfoValid=%u "
+                "CursorFlags=0x%08X "
+                "CursorPos=(%ld,%ld) "
+                "ReaderDroppedTotal=%llu\n",
+                eventCopy.Qpc,
+                sequence,
+                eventCopy.HookCode,
+                GetObservedWindowMessageName(
+                    message
+                ),
+                message,
+                targetWindow,
+                eventCopy.ThreadId,
+                eventCopy.ProcessId,
+                eventCopy.GetMessageRemoved,
+                static_cast<unsigned long long>(
+                    eventCopy.MessageWParam
+                    ),
+                static_cast<unsigned long long>(
+                    eventCopy.MessageLParam
+                    ),
+                eventCopy.CursorInfoValid,
+                eventCopy.CursorFlags,
+                eventCopy.CursorX,
+                eventCopy.CursorY,
+                static_cast<unsigned long long>(
+                    g_TridentHookDroppedByReaderCount
+                    )
+            );
+
+            PrintWindowIdentityForLog(
+                "TridentGetMessage.Target",
                 targetWindow
             );
         }

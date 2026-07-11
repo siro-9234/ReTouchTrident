@@ -9,6 +9,9 @@ namespace
     static HHOOK g_CallWndProcHook =
         nullptr;
 
+    static HHOOK g_GetMessageHook =
+        nullptr;
+
     static TridentHookSharedState*
         g_SharedState =
         nullptr;
@@ -129,6 +132,7 @@ namespace
         HWND otherWindow,
         bool mouseActivation,
         bool callWndProcSentByCurrentThread,
+        bool getMessageRemoved,
         UINT message,
         WPARAM messageWParam,
         LPARAM messageLParam
@@ -220,6 +224,11 @@ namespace
             1u :
             0u;
 
+        event->GetMessageRemoved =
+            getMessageRemoved ?
+            1u :
+            0u;
+
         event->Message =
             message;
 
@@ -289,6 +298,46 @@ namespace
         }
     }
 
+    static bool ShouldObserveGetMessage(
+        UINT message
+    )
+    {
+        switch (message)
+        {
+        case WM_MOUSEACTIVATE:
+
+        case WM_ACTIVATE:
+
+        case WM_ACTIVATEAPP:
+
+        case WM_SETFOCUS:
+
+        case WM_KILLFOCUS:
+
+        case WM_POINTERACTIVATE:
+
+        case WM_SETCURSOR:
+
+        case WM_POINTERENTER:
+
+        case WM_POINTERDOWN:
+
+        case WM_POINTERUPDATE:
+
+        case WM_POINTERUP:
+
+        case WM_POINTERLEAVE:
+
+        case WM_POINTERCAPTURECHANGED:
+
+            return true;
+
+        default:
+
+            return false;
+        }
+    }
+
     static LRESULT CALLBACK TridentCbtProc(
         int code,
         WPARAM wParam,
@@ -345,6 +394,7 @@ namespace
                 previouslyActiveWindow,
                 mouseActivation,
                 false,
+                false,
                 0,
                 0,
                 0
@@ -371,6 +421,7 @@ namespace
                 code,
                 receivingFocusWindow,
                 losingFocusWindow,
+                false,
                 false,
                 false,
                 0,
@@ -432,6 +483,65 @@ namespace
                     nullptr,
                     false,
                     wParam != 0,
+                    false,
+                    messageInfo->message,
+                    messageInfo->wParam,
+                    messageInfo->lParam
+                );
+            }
+        }
+
+        return CallNextHookEx(
+            nullptr,
+            code,
+            wParam,
+            lParam
+        );
+    }
+
+    static LRESULT CALLBACK TridentGetMsgProc(
+        int code,
+        WPARAM wParam,
+        LPARAM lParam
+    )
+    {
+        if (code < 0)
+        {
+            return CallNextHookEx(
+                nullptr,
+                code,
+                wParam,
+                lParam
+            );
+        }
+
+        if (code == HC_ACTION &&
+            lParam != 0)
+        {
+            const MSG* messageInfo =
+                reinterpret_cast<
+                const MSG*
+                >(
+                    lParam
+                    );
+
+            if (messageInfo != nullptr &&
+                ShouldObserveGetMessage(
+                    messageInfo->message
+                ))
+            {
+                const bool messageRemoved =
+                    wParam == PM_REMOVE;
+
+                WriteHookEvent(
+                    TridentHookEventType::
+                    GetMessage,
+                    code,
+                    messageInfo->hwnd,
+                    nullptr,
+                    false,
+                    false,
+                    messageRemoved,
                     messageInfo->message,
                     messageInfo->wParam,
                     messageInfo->lParam
@@ -476,13 +586,15 @@ __declspec(dllexport)
 BOOL WINAPI TridentInstallObservationHooks()
 {
     if (g_CbtHook != nullptr &&
-        g_CallWndProcHook != nullptr)
+        g_CallWndProcHook != nullptr &&
+        g_GetMessageHook != nullptr)
     {
         return TRUE;
     }
 
     if (g_CbtHook != nullptr ||
-        g_CallWndProcHook != nullptr)
+        g_CallWndProcHook != nullptr ||
+        g_GetMessageHook != nullptr)
     {
         SetLastError(
             ERROR_INVALID_STATE
@@ -519,6 +631,12 @@ BOOL WINAPI TridentInstallObservationHooks()
         InterlockedExchange64(
             &sharedState->
             InstalledCallWndProcHookValue,
+            0
+        );
+
+        InterlockedExchange64(
+            &sharedState->
+            InstalledGetMessageHookValue,
             0
         );
     }
@@ -616,11 +734,54 @@ BOOL WINAPI TridentInstallObservationHooks()
         return FALSE;
     }
 
+    SetLastError(0);
+
+    HHOOK getMessageHook =
+        SetWindowsHookExW(
+            WH_GETMESSAGE,
+            TridentGetMsgProc,
+            moduleHandle,
+            0
+        );
+
+    if (getMessageHook == nullptr)
+    {
+        DWORD getMessageError =
+            GetLastError();
+
+        UnhookWindowsHookEx(
+            callWndProcHook
+        );
+
+        UnhookWindowsHookEx(
+            cbtHook
+        );
+
+        if (sharedState != nullptr)
+        {
+            InterlockedExchange(
+                &sharedState->InstallLastError,
+                static_cast<LONG>(
+                    getMessageError
+                    )
+            );
+        }
+
+        SetLastError(
+            getMessageError
+        );
+
+        return FALSE;
+    }
+
     g_CbtHook =
         cbtHook;
 
     g_CallWndProcHook =
         callWndProcHook;
+
+    g_GetMessageHook =
+        getMessageHook;
 
     if (sharedState != nullptr)
     {
@@ -639,6 +800,16 @@ BOOL WINAPI TridentInstallObservationHooks()
             static_cast<LONG64>(
                 reinterpret_cast<ULONG_PTR>(
                     callWndProcHook
+                    )
+                )
+        );
+
+        InterlockedExchange64(
+            &sharedState->
+            InstalledGetMessageHookValue,
+            static_cast<LONG64>(
+                reinterpret_cast<ULONG_PTR>(
+                    getMessageHook
                     )
                 )
         );
@@ -666,6 +837,27 @@ BOOL WINAPI TridentUninstallObservationHooks()
     DWORD firstError =
         ERROR_SUCCESS;
 
+    if (g_GetMessageHook != nullptr)
+    {
+        HHOOK getMessageHook =
+            g_GetMessageHook;
+
+        SetLastError(0);
+
+        if (UnhookWindowsHookEx(
+            getMessageHook
+        ))
+        {
+            g_GetMessageHook =
+                nullptr;
+        }
+        else
+        {
+            firstError =
+                GetLastError();
+        }
+    }
+
     if (g_CallWndProcHook != nullptr)
     {
         HHOOK callWndProcHook =
@@ -680,7 +872,8 @@ BOOL WINAPI TridentUninstallObservationHooks()
             g_CallWndProcHook =
                 nullptr;
         }
-        else
+        else if (firstError ==
+            ERROR_SUCCESS)
         {
             firstError =
                 GetLastError();
@@ -733,10 +926,21 @@ BOOL WINAPI TridentUninstallObservationHooks()
                 )
         );
 
+        InterlockedExchange64(
+            &sharedState->
+            InstalledGetMessageHookValue,
+            static_cast<LONG64>(
+                reinterpret_cast<ULONG_PTR>(
+                    g_GetMessageHook
+                    )
+                )
+        );
+
         InterlockedExchange(
             &sharedState->InstallSucceeded,
             g_CbtHook == nullptr &&
-            g_CallWndProcHook == nullptr ?
+            g_CallWndProcHook == nullptr &&
+            g_GetMessageHook == nullptr ?
             0 :
             1
         );
