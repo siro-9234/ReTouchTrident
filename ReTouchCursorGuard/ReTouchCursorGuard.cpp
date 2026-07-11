@@ -55,30 +55,43 @@ static wchar_t g_LastRealForegroundTitle[256] = {};
 static HWINEVENTHOOK g_ForegroundWinEventHook = nullptr;
 static HWINEVENTHOOK g_FocusWinEventHook = nullptr;
 
-using TridentInstallCbtHookFunction =
+using TridentInstallObservationHooksFunction =
 BOOL(WINAPI*)();
 
-using TridentUninstallCbtHookFunction =
+using TridentUninstallObservationHooksFunction =
 BOOL(WINAPI*)();
 
-static HANDLE g_TridentHookSharedMapping = nullptr;
+static HANDLE
+g_TridentHookSharedMapping =
+nullptr;
 
 static TridentHookSharedState*
-g_TridentHookSharedState = nullptr;
+g_TridentHookSharedState =
+nullptr;
 
-static HMODULE g_TridentInputHookModule = nullptr;
+static HMODULE
+g_TridentInputHookModule =
+nullptr;
 
-static TridentInstallCbtHookFunction
-g_TridentInstallCbtHook = nullptr;
+static TridentInstallObservationHooksFunction
+g_TridentInstallObservationHooks =
+nullptr;
 
-static TridentUninstallCbtHookFunction
-g_TridentUninstallCbtHook = nullptr;
+static TridentUninstallObservationHooksFunction
+g_TridentUninstallObservationHooks =
+nullptr;
 
-static bool g_IsTridentCbtHookInstalled = false;
+static bool
+g_AreTridentObservationHooksInstalled =
+false;
 
-static LONG64 g_LastConsumedTridentHookSequence = 0;
+static LONG64
+g_LastConsumedTridentHookSequence =
+0;
 
-static uint64_t g_TridentHookDroppedByReaderCount = 0;
+static uint64_t
+g_TridentHookDroppedByReaderCount =
+0;
 
 static void PrintQpcPrefix()
 {
@@ -887,11 +900,46 @@ static const char* GetTridentHookEventTypeName(
     case TridentHookEventType::CbtSetFocus:
         return "HCBT_SETFOCUS";
 
+    case TridentHookEventType::CallWndProcMessage:
+        return "WH_CALLWNDPROC";
+
     case TridentHookEventType::None:
         return "None";
 
     default:
         return "UnknownTridentHookEvent";
+    }
+}
+
+static const char* GetObservedWindowMessageName(
+    UINT message
+)
+{
+    switch (message)
+    {
+    case WM_MOUSEACTIVATE:
+        return "WM_MOUSEACTIVATE";
+
+    case WM_ACTIVATE:
+        return "WM_ACTIVATE";
+
+    case WM_ACTIVATEAPP:
+        return "WM_ACTIVATEAPP";
+
+    case WM_SETFOCUS:
+        return "WM_SETFOCUS";
+
+    case WM_KILLFOCUS:
+        return "WM_KILLFOCUS";
+
+    case WM_POINTERACTIVATE:
+        return "WM_POINTERACTIVATE";
+
+    case WM_SETCURSOR:
+        return "WM_SETCURSOR";
+
+    default:
+        return "UNKNOWN_WINDOW_MESSAGE";
     }
 }
 
@@ -1240,7 +1288,7 @@ static bool InitializeTridentHookSharedMemory()
     return true;
 }
 
-static bool LoadAndInstallTridentCbtHook()
+static bool LoadAndInstallTridentObservationHooks()
 {
     if (g_TridentHookSharedState == nullptr)
     {
@@ -1293,19 +1341,23 @@ static bool LoadAndInstallTridentCbtHook()
         return false;
     }
 
+    SetLastError(0);
+
     FARPROC installAddress =
         GetProcAddress(
             hookModule,
-            "TridentInstallCbtHook"
+            "TridentInstallObservationHooks"
         );
 
     DWORD installAddressError =
         GetLastError();
 
+    SetLastError(0);
+
     FARPROC uninstallAddress =
         GetProcAddress(
             hookModule,
-            "TridentUninstallCbtHook"
+            "TridentUninstallObservationHooks"
         );
 
     DWORD uninstallAddressError =
@@ -1315,8 +1367,10 @@ static bool LoadAndInstallTridentCbtHook()
 
     std::printf(
         "GetProcAddress "
-        "Install=%p InstallError=%lu "
-        "Uninstall=%p UninstallError=%lu\n",
+        "InstallObservationHooks=%p "
+        "InstallError=%lu "
+        "UninstallObservationHooks=%p "
+        "UninstallError=%lu\n",
         installAddress,
         installAddressError,
         uninstallAddress,
@@ -1335,14 +1389,14 @@ static bool LoadAndInstallTridentCbtHook()
 
     auto installFunction =
         reinterpret_cast<
-        TridentInstallCbtHookFunction
+        TridentInstallObservationHooksFunction
         >(
             installAddress
             );
 
     auto uninstallFunction =
         reinterpret_cast<
-        TridentUninstallCbtHookFunction
+        TridentUninstallObservationHooksFunction
         >(
             uninstallAddress
             );
@@ -1355,14 +1409,68 @@ static bool LoadAndInstallTridentCbtHook()
     DWORD installError =
         GetLastError();
 
+    LONG installAttempted =
+        InterlockedCompareExchange(
+            &g_TridentHookSharedState->
+            InstallAttempted,
+            0,
+            0
+        );
+
+    LONG installSucceeded =
+        InterlockedCompareExchange(
+            &g_TridentHookSharedState->
+            InstallSucceeded,
+            0,
+            0
+        );
+
+    LONG sharedInstallError =
+        InterlockedCompareExchange(
+            &g_TridentHookSharedState->
+            InstallLastError,
+            0,
+            0
+        );
+
+    LONG64 installedCbtHookValue =
+        InterlockedCompareExchange64(
+            &g_TridentHookSharedState->
+            InstalledCbtHookValue,
+            0,
+            0
+        );
+
+    LONG64 installedCallWndProcHookValue =
+        InterlockedCompareExchange64(
+            &g_TridentHookSharedState->
+            InstalledCallWndProcHookValue,
+            0,
+            0
+        );
+
     PrintQpcPrefix();
 
     std::printf(
-        "TridentInstallCbtHook "
+        "TridentInstallObservationHooks "
         "Result=%d "
-        "GetLastError=%lu\n",
+        "GetLastError=%lu "
+        "InstallAttempted=%ld "
+        "InstallSucceeded=%ld "
+        "SharedInstallLastError=%ld "
+        "CbtHook=0x%016llX "
+        "CallWndProcHook=0x%016llX\n",
         installResult ? 1 : 0,
-        installError
+        installError,
+        installAttempted,
+        installSucceeded,
+        sharedInstallError,
+        static_cast<unsigned long long>(
+            installedCbtHookValue
+            ),
+        static_cast<unsigned long long>(
+            installedCallWndProcHookValue
+            )
     );
 
     if (!installResult)
@@ -1377,13 +1485,13 @@ static bool LoadAndInstallTridentCbtHook()
     g_TridentInputHookModule =
         hookModule;
 
-    g_TridentInstallCbtHook =
+    g_TridentInstallObservationHooks =
         installFunction;
 
-    g_TridentUninstallCbtHook =
+    g_TridentUninstallObservationHooks =
         uninstallFunction;
 
-    g_IsTridentCbtHookInstalled =
+    g_AreTridentObservationHooksInstalled =
         true;
 
     return true;
@@ -1438,7 +1546,7 @@ static void DrainTridentHookEvents()
         PrintQpcPrefix();
 
         std::printf(
-            "TridentCbtReaderOverrun "
+            "TridentHookReaderOverrun "
             "DroppedNow=%lld "
             "DroppedTotal=%llu "
             "RequestedFirst=%lld "
@@ -1510,6 +1618,22 @@ static void DrainTridentHookEvents()
         eventCopy.MouseActivation =
             sourceEvent->MouseActivation;
 
+        eventCopy.CallWndProcSentByCurrentThread =
+            sourceEvent->
+            CallWndProcSentByCurrentThread;
+
+        eventCopy.Message =
+            sourceEvent->Message;
+
+        eventCopy.ReservedMessage =
+            sourceEvent->ReservedMessage;
+
+        eventCopy.MessageWParam =
+            sourceEvent->MessageWParam;
+
+        eventCopy.MessageLParam =
+            sourceEvent->MessageLParam;
+
         eventCopy.CursorInfoValid =
             sourceEvent->CursorInfoValid;
 
@@ -1557,52 +1681,111 @@ static void DrainTridentHookEvents()
                     )
                 );
 
-        std::printf(
-            "[QPC=%lld Freq=10000000] "
-            "TridentCbt "
-            "Sequence=%lld "
-            "Event=%s "
-            "HookCode=%d "
-            "TargetHwnd=%p "
-            "OtherHwnd=%p "
-            "ThreadId=%lu "
-            "ProcessId=%lu "
-            "MouseActivation=%u "
-            "CursorInfoValid=%u "
-            "CursorFlags=0x%08X "
-            "CursorPos=(%ld,%ld) "
-            "ReaderDroppedTotal=%llu\n",
-            eventCopy.Qpc,
-            sequence,
-            GetTridentHookEventTypeName(
-                eventType
-            ),
-            eventCopy.HookCode,
-            targetWindow,
-            otherWindow,
-            eventCopy.ThreadId,
-            eventCopy.ProcessId,
-            eventCopy.MouseActivation,
-            eventCopy.CursorInfoValid,
-            eventCopy.CursorFlags,
-            eventCopy.CursorX,
-            eventCopy.CursorY,
-            static_cast<unsigned long long>(
-                g_TridentHookDroppedByReaderCount
-                )
-        );
-
-        PrintWindowIdentityForLog(
-            "TridentCbt.Target",
-            targetWindow
-        );
-
-        if (otherWindow != nullptr)
+        if (eventType ==
+            TridentHookEventType::
+            CallWndProcMessage)
         {
-            PrintWindowIdentityForLog(
-                "TridentCbt.Other",
-                otherWindow
+            const UINT message =
+                eventCopy.Message;
+
+            std::printf(
+                "[QPC=%lld Freq=10000000] "
+                "TridentCallWndProc "
+                "Sequence=%lld "
+                "HookCode=%d "
+                "Message=%s "
+                "MessageValue=0x%04X "
+                "TargetHwnd=%p "
+                "ThreadId=%lu "
+                "ProcessId=%lu "
+                "SentByCurrentThread=%u "
+                "MessageWParam=0x%016llX "
+                "MessageLParam=0x%016llX "
+                "CursorInfoValid=%u "
+                "CursorFlags=0x%08X "
+                "CursorPos=(%ld,%ld) "
+                "ReaderDroppedTotal=%llu\n",
+                eventCopy.Qpc,
+                sequence,
+                eventCopy.HookCode,
+                GetObservedWindowMessageName(
+                    message
+                ),
+                message,
+                targetWindow,
+                eventCopy.ThreadId,
+                eventCopy.ProcessId,
+                eventCopy.
+                CallWndProcSentByCurrentThread,
+                static_cast<unsigned long long>(
+                    eventCopy.MessageWParam
+                    ),
+                static_cast<unsigned long long>(
+                    eventCopy.MessageLParam
+                    ),
+                eventCopy.CursorInfoValid,
+                eventCopy.CursorFlags,
+                eventCopy.CursorX,
+                eventCopy.CursorY,
+                static_cast<unsigned long long>(
+                    g_TridentHookDroppedByReaderCount
+                    )
             );
+
+            PrintWindowIdentityForLog(
+                "TridentCallWndProc.Target",
+                targetWindow
+            );
+        }
+        else
+        {
+            std::printf(
+                "[QPC=%lld Freq=10000000] "
+                "TridentCbt "
+                "Sequence=%lld "
+                "Event=%s "
+                "HookCode=%d "
+                "TargetHwnd=%p "
+                "OtherHwnd=%p "
+                "ThreadId=%lu "
+                "ProcessId=%lu "
+                "MouseActivation=%u "
+                "CursorInfoValid=%u "
+                "CursorFlags=0x%08X "
+                "CursorPos=(%ld,%ld) "
+                "ReaderDroppedTotal=%llu\n",
+                eventCopy.Qpc,
+                sequence,
+                GetTridentHookEventTypeName(
+                    eventType
+                ),
+                eventCopy.HookCode,
+                targetWindow,
+                otherWindow,
+                eventCopy.ThreadId,
+                eventCopy.ProcessId,
+                eventCopy.MouseActivation,
+                eventCopy.CursorInfoValid,
+                eventCopy.CursorFlags,
+                eventCopy.CursorX,
+                eventCopy.CursorY,
+                static_cast<unsigned long long>(
+                    g_TridentHookDroppedByReaderCount
+                    )
+            );
+
+            PrintWindowIdentityForLog(
+                "TridentCbt.Target",
+                targetWindow
+            );
+
+            if (otherWindow != nullptr)
+            {
+                PrintWindowIdentityForLog(
+                    "TridentCbt.Other",
+                    otherWindow
+                );
+            }
         }
 
         g_LastConsumedTridentHookSequence =
@@ -1610,15 +1793,16 @@ static void DrainTridentHookEvents()
     }
 }
 
-static void ShutdownTridentCbtObservation()
+static void ShutdownTridentObservation()
 {
-    if (g_IsTridentCbtHookInstalled &&
-        g_TridentUninstallCbtHook != nullptr)
+    if (g_AreTridentObservationHooksInstalled &&
+        g_TridentUninstallObservationHooks !=
+        nullptr)
     {
         SetLastError(0);
 
         BOOL uninstallResult =
-            g_TridentUninstallCbtHook();
+            g_TridentUninstallObservationHooks();
 
         DWORD uninstallError =
             GetLastError();
@@ -1626,7 +1810,7 @@ static void ShutdownTridentCbtObservation()
         PrintQpcPrefix();
 
         std::printf(
-            "TridentUninstallCbtHook "
+            "TridentUninstallObservationHooks "
             "Result=%d "
             "GetLastError=%lu\n",
             uninstallResult ? 1 : 0,
@@ -1635,45 +1819,24 @@ static void ShutdownTridentCbtObservation()
 
         if (uninstallResult)
         {
-            g_IsTridentCbtHookInstalled =
+            g_AreTridentObservationHooksInstalled =
                 false;
         }
     }
 
-    if (g_TridentInputHookModule != nullptr &&
-        !g_IsTridentCbtHookInstalled)
+    if (g_TridentInputHookModule != nullptr)
     {
-        SetLastError(0);
-
-        BOOL freeLibraryResult =
-            FreeLibrary(
-                g_TridentInputHookModule
-            );
-
-        DWORD freeLibraryError =
-            GetLastError();
-
         PrintQpcPrefix();
 
         std::printf(
-            "FreeLibrary TridentInputHook "
-            "Result=%d "
-            "GetLastError=%lu\n",
-            freeLibraryResult ? 1 : 0,
-            freeLibraryError
+            "TridentInputHook module retained "
+            "until process termination. "
+            "Module=%p HooksInstalled=%d\n",
+            g_TridentInputHookModule,
+            g_AreTridentObservationHooksInstalled ?
+            1 :
+            0
         );
-
-        if (freeLibraryResult)
-        {
-            g_TridentInputHookModule =
-                nullptr;
-
-            g_TridentInstallCbtHook =
-                nullptr;
-
-            g_TridentUninstallCbtHook =
-                nullptr;
-        }
     }
 
     if (g_TridentHookSharedState != nullptr)
@@ -2628,7 +2791,9 @@ static LRESULT CALLBACK ReTouchCursorGuardWndProc(
     switch (message)
     {
     case WM_CREATE:
-        if (!RegisterRawMouse(hwnd))
+        if (!RegisterRawMouse(
+            hwnd
+        ))
         {
             std::printf(
                 "RegisterRawInputDevices failed. "
@@ -2665,7 +2830,8 @@ static LRESULT CALLBACK ReTouchCursorGuardWndProc(
             PrintQpcPrefix();
 
             std::printf(
-                "InitializeTridentHookSharedMemory failed.\n"
+                "InitializeTridentHookSharedMemory "
+                "failed.\n"
             );
 
             UnregisterWinEventHooks();
@@ -2674,15 +2840,16 @@ static LRESULT CALLBACK ReTouchCursorGuardWndProc(
             return -1;
         }
 
-        if (!LoadAndInstallTridentCbtHook())
+        if (!LoadAndInstallTridentObservationHooks())
         {
             PrintQpcPrefix();
 
             std::printf(
-                "LoadAndInstallTridentCbtHook failed.\n"
+                "LoadAndInstallTridentObservationHooks "
+                "failed.\n"
             );
 
-            ShutdownTridentCbtObservation();
+            ShutdownTridentObservation();
             UnregisterWinEventHooks();
 
             PostQuitMessage(1);
@@ -2784,7 +2951,7 @@ static LRESULT CALLBACK ReTouchCursorGuardWndProc(
 
         DrainTridentHookEvents();
 
-        ShutdownTridentCbtObservation();
+        ShutdownTridentObservation();
 
         UnregisterWinEventHooks();
 
@@ -2792,7 +2959,12 @@ static LRESULT CALLBACK ReTouchCursorGuardWndProc(
         return 0;
     }
 
-    return DefWindowProc(hwnd, message, wParam, lParam);
+    return DefWindowProc(
+        hwnd,
+        message,
+        wParam,
+        lParam
+    );
 }
 
 static bool RegisterGuardWindowClass(HINSTANCE instance)

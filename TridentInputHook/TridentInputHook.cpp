@@ -3,10 +3,15 @@
 
 namespace
 {
-    static HHOOK g_CbtHook = nullptr;
+    static HHOOK g_CbtHook =
+        nullptr;
+
+    static HHOOK g_CallWndProcHook =
+        nullptr;
 
     static TridentHookSharedState*
-        g_SharedState = nullptr;
+        g_SharedState =
+        nullptr;
 
     static TridentHookSharedState*
         GetSharedState()
@@ -122,7 +127,11 @@ namespace
         int hookCode,
         HWND targetWindow,
         HWND otherWindow,
-        bool mouseActivation
+        bool mouseActivation,
+        bool callWndProcSentByCurrentThread,
+        UINT message,
+        WPARAM messageWParam,
+        LPARAM messageLParam
     )
     {
         TridentHookSharedState* sharedState =
@@ -185,18 +194,14 @@ namespace
 
         event->TargetHwnd =
             static_cast<std::uint64_t>(
-                reinterpret_cast<
-                ULONG_PTR
-                >(
+                reinterpret_cast<ULONG_PTR>(
                     targetWindow
                     )
                 );
 
         event->OtherHwnd =
             static_cast<std::uint64_t>(
-                reinterpret_cast<
-                ULONG_PTR
-                >(
+                reinterpret_cast<ULONG_PTR>(
                     otherWindow
                     )
                 );
@@ -209,6 +214,31 @@ namespace
 
         event->MouseActivation =
             mouseActivation ? 1u : 0u;
+
+        event->CallWndProcSentByCurrentThread =
+            callWndProcSentByCurrentThread ?
+            1u :
+            0u;
+
+        event->Message =
+            message;
+
+        event->ReservedMessage =
+            0;
+
+        event->MessageWParam =
+            static_cast<std::uint64_t>(
+                static_cast<ULONG_PTR>(
+                    messageWParam
+                    )
+                );
+
+        event->MessageLParam =
+            static_cast<std::int64_t>(
+                static_cast<LONG_PTR>(
+                    messageLParam
+                    )
+                );
 
         event->CursorInfoValid =
             cursorInfoResult ? 1u : 0u;
@@ -237,6 +267,26 @@ namespace
             &event->CommittedSequence,
             sequence
         );
+    }
+
+    static bool ShouldObserveCallWndProcMessage(
+        UINT message
+    )
+    {
+        switch (message)
+        {
+        case WM_MOUSEACTIVATE:
+        case WM_ACTIVATE:
+        case WM_ACTIVATEAPP:
+        case WM_SETFOCUS:
+        case WM_KILLFOCUS:
+        case WM_POINTERACTIVATE:
+        case WM_SETCURSOR:
+            return true;
+
+        default:
+            return false;
+        }
     }
 
     static LRESULT CALLBACK TridentCbtProc(
@@ -293,7 +343,11 @@ namespace
                 code,
                 targetWindow,
                 previouslyActiveWindow,
-                mouseActivation
+                mouseActivation,
+                false,
+                0,
+                0,
+                0
             );
 
             break;
@@ -317,7 +371,11 @@ namespace
                 code,
                 receivingFocusWindow,
                 losingFocusWindow,
-                false
+                false,
+                false,
+                0,
+                0,
+                0
             );
 
             break;
@@ -325,6 +383,60 @@ namespace
 
         default:
             break;
+        }
+
+        return CallNextHookEx(
+            nullptr,
+            code,
+            wParam,
+            lParam
+        );
+    }
+
+    static LRESULT CALLBACK TridentCallWndProc(
+        int code,
+        WPARAM wParam,
+        LPARAM lParam
+    )
+    {
+        if (code < 0)
+        {
+            return CallNextHookEx(
+                nullptr,
+                code,
+                wParam,
+                lParam
+            );
+        }
+
+        if (code == HC_ACTION &&
+            lParam != 0)
+        {
+            const CWPSTRUCT* messageInfo =
+                reinterpret_cast<
+                const CWPSTRUCT*
+                >(
+                    lParam
+                    );
+
+            if (messageInfo != nullptr &&
+                ShouldObserveCallWndProcMessage(
+                    messageInfo->message
+                ))
+            {
+                WriteHookEvent(
+                    TridentHookEventType::
+                    CallWndProcMessage,
+                    code,
+                    messageInfo->hwnd,
+                    nullptr,
+                    false,
+                    wParam != 0,
+                    messageInfo->message,
+                    messageInfo->wParam,
+                    messageInfo->lParam
+                );
+            }
         }
 
         return CallNextHookEx(
@@ -361,11 +473,54 @@ namespace
 
 extern "C"
 __declspec(dllexport)
-BOOL WINAPI TridentInstallCbtHook()
+BOOL WINAPI TridentInstallObservationHooks()
 {
-    if (g_CbtHook != nullptr)
+    if (g_CbtHook != nullptr &&
+        g_CallWndProcHook != nullptr)
     {
         return TRUE;
+    }
+
+    if (g_CbtHook != nullptr ||
+        g_CallWndProcHook != nullptr)
+    {
+        SetLastError(
+            ERROR_INVALID_STATE
+        );
+
+        return FALSE;
+    }
+
+    TridentHookSharedState* sharedState =
+        GetSharedState();
+
+    if (sharedState != nullptr)
+    {
+        InterlockedExchange(
+            &sharedState->InstallAttempted,
+            1
+        );
+
+        InterlockedExchange(
+            &sharedState->InstallSucceeded,
+            0
+        );
+
+        InterlockedExchange(
+            &sharedState->InstallLastError,
+            0
+        );
+
+        InterlockedExchange64(
+            &sharedState->InstalledCbtHookValue,
+            0
+        );
+
+        InterlockedExchange64(
+            &sharedState->
+            InstalledCallWndProcHookValue,
+            0
+        );
     }
 
     HMODULE moduleHandle =
@@ -373,10 +528,29 @@ BOOL WINAPI TridentInstallCbtHook()
 
     if (moduleHandle == nullptr)
     {
+        DWORD moduleError =
+            GetLastError();
+
+        if (sharedState != nullptr)
+        {
+            InterlockedExchange(
+                &sharedState->InstallLastError,
+                static_cast<LONG>(
+                    moduleError
+                    )
+            );
+        }
+
+        SetLastError(
+            moduleError
+        );
+
         return FALSE;
     }
 
-    HHOOK hook =
+    SetLastError(0);
+
+    HHOOK cbtHook =
         SetWindowsHookExW(
             WH_CBT,
             TridentCbtProc,
@@ -384,36 +558,207 @@ BOOL WINAPI TridentInstallCbtHook()
             0
         );
 
-    if (hook == nullptr)
+    if (cbtHook == nullptr)
     {
+        DWORD cbtError =
+            GetLastError();
+
+        if (sharedState != nullptr)
+        {
+            InterlockedExchange(
+                &sharedState->InstallLastError,
+                static_cast<LONG>(
+                    cbtError
+                    )
+            );
+        }
+
+        SetLastError(
+            cbtError
+        );
+
         return FALSE;
     }
 
-    g_CbtHook = hook;
+    SetLastError(0);
+
+    HHOOK callWndProcHook =
+        SetWindowsHookExW(
+            WH_CALLWNDPROC,
+            TridentCallWndProc,
+            moduleHandle,
+            0
+        );
+
+    if (callWndProcHook == nullptr)
+    {
+        DWORD callWndProcError =
+            GetLastError();
+
+        UnhookWindowsHookEx(
+            cbtHook
+        );
+
+        if (sharedState != nullptr)
+        {
+            InterlockedExchange(
+                &sharedState->InstallLastError,
+                static_cast<LONG>(
+                    callWndProcError
+                    )
+            );
+        }
+
+        SetLastError(
+            callWndProcError
+        );
+
+        return FALSE;
+    }
+
+    g_CbtHook =
+        cbtHook;
+
+    g_CallWndProcHook =
+        callWndProcHook;
+
+    if (sharedState != nullptr)
+    {
+        InterlockedExchange64(
+            &sharedState->InstalledCbtHookValue,
+            static_cast<LONG64>(
+                reinterpret_cast<ULONG_PTR>(
+                    cbtHook
+                    )
+                )
+        );
+
+        InterlockedExchange64(
+            &sharedState->
+            InstalledCallWndProcHookValue,
+            static_cast<LONG64>(
+                reinterpret_cast<ULONG_PTR>(
+                    callWndProcHook
+                    )
+                )
+        );
+
+        InterlockedExchange(
+            &sharedState->InstallSucceeded,
+            1
+        );
+
+        InterlockedExchange(
+            &sharedState->InstallLastError,
+            0
+        );
+    }
+
+    SetLastError(0);
 
     return TRUE;
 }
 
 extern "C"
 __declspec(dllexport)
-BOOL WINAPI TridentUninstallCbtHook()
+BOOL WINAPI TridentUninstallObservationHooks()
 {
-    if (g_CbtHook == nullptr)
+    DWORD firstError =
+        ERROR_SUCCESS;
+
+    if (g_CallWndProcHook != nullptr)
     {
-        return TRUE;
+        HHOOK callWndProcHook =
+            g_CallWndProcHook;
+
+        SetLastError(0);
+
+        if (UnhookWindowsHookEx(
+            callWndProcHook
+        ))
+        {
+            g_CallWndProcHook =
+                nullptr;
+        }
+        else
+        {
+            firstError =
+                GetLastError();
+        }
     }
 
-    HHOOK hook =
-        g_CbtHook;
-
-    if (!UnhookWindowsHookEx(
-        hook
-    ))
+    if (g_CbtHook != nullptr)
     {
+        HHOOK cbtHook =
+            g_CbtHook;
+
+        SetLastError(0);
+
+        if (UnhookWindowsHookEx(
+            cbtHook
+        ))
+        {
+            g_CbtHook =
+                nullptr;
+        }
+        else if (firstError ==
+            ERROR_SUCCESS)
+        {
+            firstError =
+                GetLastError();
+        }
+    }
+
+    TridentHookSharedState* sharedState =
+        GetSharedState();
+
+    if (sharedState != nullptr)
+    {
+        InterlockedExchange64(
+            &sharedState->InstalledCbtHookValue,
+            static_cast<LONG64>(
+                reinterpret_cast<ULONG_PTR>(
+                    g_CbtHook
+                    )
+                )
+        );
+
+        InterlockedExchange64(
+            &sharedState->
+            InstalledCallWndProcHookValue,
+            static_cast<LONG64>(
+                reinterpret_cast<ULONG_PTR>(
+                    g_CallWndProcHook
+                    )
+                )
+        );
+
+        InterlockedExchange(
+            &sharedState->InstallSucceeded,
+            g_CbtHook == nullptr &&
+            g_CallWndProcHook == nullptr ?
+            0 :
+            1
+        );
+
+        InterlockedExchange(
+            &sharedState->InstallLastError,
+            static_cast<LONG>(
+                firstError
+                )
+        );
+    }
+
+    if (firstError != ERROR_SUCCESS)
+    {
+        SetLastError(
+            firstError
+        );
+
         return FALSE;
     }
 
-    g_CbtHook = nullptr;
+    SetLastError(0);
 
     return TRUE;
 }

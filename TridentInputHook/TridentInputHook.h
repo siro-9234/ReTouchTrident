@@ -6,16 +6,16 @@
 
 constexpr wchar_t
 TRIDENT_INPUT_HOOK_SHARED_MEMORY_NAME[] =
-L"Local\\ReTouchTridentInputHook.SharedState.v1";
+L"Local\\ReTouchTridentInputHook.SharedState.v2";
 
 constexpr std::uint32_t
 TRIDENT_INPUT_HOOK_SHARED_SIGNATURE =
-0x31494854;
-// ASCII little-endian: "THI1"
+0x32494854;
+// ASCII little-endian: "THI2"
 
 constexpr std::uint32_t
 TRIDENT_INPUT_HOOK_SHARED_VERSION =
-1;
+2;
 
 constexpr std::uint32_t
 TRIDENT_INPUT_HOOK_EVENT_CAPACITY =
@@ -24,8 +24,11 @@ TRIDENT_INPUT_HOOK_EVENT_CAPACITY =
 enum class TridentHookEventType : std::uint32_t
 {
     None = 0,
+
     CbtActivate = 1,
-    CbtSetFocus = 2
+    CbtSetFocus = 2,
+
+    CallWndProcMessage = 3
 };
 
 struct alignas(8) TridentHookEvent
@@ -44,6 +47,13 @@ struct alignas(8) TridentHookEvent
     std::uint32_t ProcessId;
 
     std::uint32_t MouseActivation;
+    std::uint32_t CallWndProcSentByCurrentThread;
+
+    std::uint32_t Message;
+    std::uint32_t ReservedMessage;
+
+    std::uint64_t MessageWParam;
+    std::int64_t MessageLParam;
 
     std::uint32_t CursorInfoValid;
     std::uint32_t CursorFlags;
@@ -62,7 +72,9 @@ struct alignas(8) TridentHookSharedState
     volatile LONG InstallAttempted;
     volatile LONG InstallSucceeded;
     volatile LONG InstallLastError;
-    volatile LONG64 InstalledHookValue;
+
+    volatile LONG64 InstalledCbtHookValue;
+    volatile LONG64 InstalledCallWndProcHookValue;
 
     volatile LONG64 WriteSequence;
 
@@ -87,8 +99,8 @@ static_assert(
 extern "C"
 {
     __declspec(dllexport)
-        BOOL WINAPI TridentInstallCbtHook();
+        BOOL WINAPI TridentInstallObservationHooks();
 
     __declspec(dllexport)
-        BOOL WINAPI TridentUninstallCbtHook();
+        BOOL WINAPI TridentUninstallObservationHooks();
 }
