@@ -6,16 +6,16 @@
 
 constexpr wchar_t
 TRIDENT_INPUT_HOOK_SHARED_MEMORY_NAME[] =
-L"Local\\ReTouchTridentInputHook.SharedState.v3";
+L"Local\\ReTouchTridentInputHook.SharedState.v4";
 
 constexpr std::uint32_t
 TRIDENT_INPUT_HOOK_SHARED_SIGNATURE =
-0x33494854;
-// ASCII little-endian: "THI3"
+0x34494854;
+// ASCII little-endian: "THI4"
 
 constexpr std::uint32_t
 TRIDENT_INPUT_HOOK_SHARED_VERSION =
-3;
+4;
 
 constexpr std::uint32_t
 TRIDENT_INPUT_HOOK_EVENT_CAPACITY =
@@ -30,7 +30,9 @@ enum class TridentHookEventType : std::uint32_t
 
     CallWndProcMessage = 3,
 
-    GetMessage = 4
+    GetMessage = 4,
+
+    CallWndProcRetMessage = 5
 };
 
 struct alignas(8) TridentHookEvent
@@ -59,6 +61,8 @@ struct alignas(8) TridentHookEvent
     std::uint64_t MessageWParam;
     std::int64_t MessageLParam;
 
+    std::int64_t MessageResult;
+
     std::uint32_t CursorInfoValid;
     std::uint32_t CursorFlags;
 
@@ -80,6 +84,7 @@ struct alignas(8) TridentHookSharedState
     volatile LONG64 InstalledCbtHookValue;
     volatile LONG64 InstalledCallWndProcHookValue;
     volatile LONG64 InstalledGetMessageHookValue;
+    volatile LONG64 InstalledCallWndProcRetHookValue;
 
     volatile LONG64 WriteSequence;
 
