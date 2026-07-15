@@ -1,5 +1,7 @@
 #include "Win32kManager.h"
 #include "HookManager.h"
+#include "PatchTargetInspector.h"
+#include "PatchTransaction.h"
 #include "PatternScanner.h"
 #include "PEImage.h"
 #include "TridentLog.h"

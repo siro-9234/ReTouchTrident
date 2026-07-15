@@ -1,5 +1,6 @@
 #include "HookManager.h"
 #include "PatchTargetInspector.h"
+#include "PatchTransaction.h"
 
 namespace
 {
@@ -11,6 +12,8 @@ namespace
     SIZE_T g_OriginalLength = 0;
 
     TRIDENT_PATCH_INSPECTION_RESULT g_InspectionResult = {};
+
+    TRIDENT_PATCH_TRANSACTION g_PatchTransaction = {};
 }
 
 VOID
@@ -19,12 +22,20 @@ TridentHookManager::Initialize()
     g_CandidateAddress = nullptr;
     g_SkipTargetAddress = nullptr;
 
-    RtlZeroMemory(g_OriginalBytes, sizeof(g_OriginalBytes));
+    RtlZeroMemory(
+        g_OriginalBytes,
+        sizeof(g_OriginalBytes)
+    );
+
     g_OriginalLength = 0;
 
     RtlZeroMemory(
         &g_InspectionResult,
         sizeof(g_InspectionResult)
+    );
+
+    TridentPatchTransaction::Initialize(
+        &g_PatchTransaction
     );
 
     InterlockedExchange(
@@ -36,11 +47,18 @@ TridentHookManager::Initialize()
 VOID
 TridentHookManager::Reset()
 {
-    // No executable memory is modified by the scaffold, so reset is state-only.
+    TridentPatchTransaction::Reset(
+        &g_PatchTransaction
+    );
+
     g_CandidateAddress = nullptr;
     g_SkipTargetAddress = nullptr;
 
-    RtlZeroMemory(g_OriginalBytes, sizeof(g_OriginalBytes));
+    RtlZeroMemory(
+        g_OriginalBytes,
+        sizeof(g_OriginalBytes)
+    );
+
     g_OriginalLength = 0;
 
     RtlZeroMemory(
@@ -123,7 +141,7 @@ TridentHookManager::Prepare()
         return STATUS_INVALID_ADDRESS;
     }
 
-    const NTSTATUS status =
+    NTSTATUS status =
         TridentPatchTargetInspector::Inspect(
             g_CandidateAddress,
             &g_InspectionResult
@@ -139,14 +157,29 @@ TridentHookManager::Prepare()
         return status;
     }
 
-    RtlCopyMemory(
-        g_OriginalBytes,
-        g_InspectionResult.OriginalBytes,
-        sizeof(g_OriginalBytes)
-    );
+    status =
+        TridentPatchTransaction::Prepare(
+            &g_PatchTransaction,
+            g_InspectionResult.TargetAddress,
+            g_InspectionResult.OriginalBytes,
+            g_InspectionResult.InspectedLength
+        );
 
-    g_OriginalLength =
-        g_InspectionResult.InspectedLength;
+    if (!NT_SUCCESS(status))
+    {
+        TridentPatchTransaction::Reset(
+            &g_PatchTransaction
+        );
+
+        RtlZeroMemory(
+            g_OriginalBytes,
+            sizeof(g_OriginalBytes)
+        );
+
+        g_OriginalLength = 0;
+
+        return status;
+    }
 
     return STATUS_SUCCESS;
 }
