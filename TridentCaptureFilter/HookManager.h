@@ -21,6 +21,8 @@ namespace TridentHookManager
         _In_ PVOID SkipTargetAddress
     );
 
+    NTSTATUS Prepare();
+
     NTSTATUS Enable();
     NTSTATUS Disable();
     TRIDENT_HOOK_STATE GetState();

@@ -10,7 +10,7 @@ ClassGuid   = {e2f84ce7-8efa-411c-aa69-97454ca4cb57}
 ExtensionId = {808CFC8B-6325-4120-9916-2F54AB761AF4}
 Provider    = %ManufacturerName%
 CatalogFile = TridentCaptureFilter.cat
-DriverVer   = 07/15/2026,0.8.0.0
+DriverVer   = 07/15/2026,0.8.0.1
 PnpLockdown = 1
 
 [DestinationDirs]

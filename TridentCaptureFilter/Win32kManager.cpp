@@ -467,10 +467,26 @@ TridentWin32kManager::Initialize()
         g_Status.CandidateAddress,
         g_Status.SkipTargetAddress
     );
+
     if (!NT_SUCCESS(status))
     {
         g_Status.State = TridentWin32kStateFailed;
         g_Status.LastStatus = status;
+        return status;
+    }
+
+    status = TridentHookManager::Prepare();
+
+    if (!NT_SUCCESS(status))
+    {
+        g_Status.State = TridentWin32kStateFailed;
+        g_Status.LastStatus = status;
+
+        TridentLogWarning(
+            "Hook prepare failed: 0x%08X",
+            status
+        );
+
         return status;
     }
 

@@ -5,6 +5,9 @@ namespace
     volatile LONG g_State = TridentHookStateUninitialized;
     PVOID g_CandidateAddress = nullptr;
     PVOID g_SkipTargetAddress = nullptr;
+
+    UCHAR g_OriginalBytes[16] = {};
+    SIZE_T g_OriginalLength = 0;
 }
 
 VOID
@@ -30,26 +33,92 @@ TridentHookManager::Configure(
     _In_ PVOID SkipTargetAddress
 )
 {
-    if (CandidateAddress == nullptr || SkipTargetAddress == nullptr)
+    if (CandidateAddress == nullptr ||
+        SkipTargetAddress == nullptr ||
+        SkipTargetAddress <= CandidateAddress)
     {
-        InterlockedExchange(&g_State, TridentHookStateFailed);
+        InterlockedExchange(
+            &g_State,
+            TridentHookStateFailed
+        );
+
         return STATUS_INVALID_PARAMETER;
+    }
+
+    const LONG currentState =
+        InterlockedCompareExchange(
+            &g_State,
+            0,
+            0
+        );
+
+    if (currentState == TridentHookStateReady)
+    {
+        if (g_CandidateAddress == CandidateAddress &&
+            g_SkipTargetAddress == SkipTargetAddress)
+        {
+            return STATUS_SUCCESS;
+        }
+
+        return STATUS_INVALID_DEVICE_STATE;
+    }
+
+    if (currentState == TridentHookStateFailed ||
+        g_CandidateAddress != nullptr ||
+        g_SkipTargetAddress != nullptr)
+    {
+        return STATUS_INVALID_DEVICE_STATE;
     }
 
     g_CandidateAddress = CandidateAddress;
     g_SkipTargetAddress = SkipTargetAddress;
-    InterlockedExchange(&g_State, TridentHookStateReady);
+
+    MemoryBarrier();
+
+    InterlockedExchange(
+        &g_State,
+        TridentHookStateReady
+    );
+
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS
+TridentHookManager::Prepare()
+{
+    if (GetState() != TridentHookStateReady)
+    {
+        return STATUS_INVALID_DEVICE_STATE;
+    }
+
+    if (g_CandidateAddress == nullptr)
+    {
+        return STATUS_INVALID_ADDRESS;
+    }
+
+    RtlCopyMemory(
+        g_OriginalBytes,
+        g_CandidateAddress,
+        sizeof(g_OriginalBytes)
+    );
+
+    g_OriginalLength = sizeof(g_OriginalBytes);
+
     return STATUS_SUCCESS;
 }
 
 NTSTATUS
 TridentHookManager::Enable()
 {
-    UNREFERENCED_PARAMETER(g_CandidateAddress);
-    UNREFERENCED_PARAMETER(g_SkipTargetAddress);
+    if (InterlockedCompareExchange(
+        &g_State,
+        TridentHookStateEnabled,
+        TridentHookStateReady) != TridentHookStateReady)
+    {
+        return STATUS_INVALID_DEVICE_STATE;
+    }
 
-    // Deliberately unavailable in the safe scaffold. No patching is performed.
-    return STATUS_NOT_SUPPORTED;
+    return STATUS_SUCCESS;
 }
 
 NTSTATUS
