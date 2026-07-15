@@ -137,6 +137,7 @@
     <ClCompile Include="DriverEntry.cpp" />
     <ClCompile Include="GlobalContext.cpp" />
     <ClCompile Include="HookManager.cpp" />
+    <ClCompile Include="PatchTargetInspector.cpp" />
     <ClCompile Include="PatternScanner.cpp" />
     <ClCompile Include="PEImage.cpp" />
     <ClCompile Include="Win32kManager.cpp" />
@@ -152,6 +153,7 @@
     <ClInclude Include="DeviceContext.h" />
     <ClInclude Include="GlobalContext.h" />
     <ClInclude Include="HookManager.h" />
+    <ClInclude Include="PatchTargetInspector.h" />
     <ClInclude Include="PatternScanner.h" />
     <ClInclude Include="PEImage.h" />
     <ClInclude Include="TridentLog.h" />

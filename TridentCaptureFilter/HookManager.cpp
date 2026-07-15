@@ -1,4 +1,5 @@
 #include "HookManager.h"
+#include "PatchTargetInspector.h"
 
 namespace
 {
@@ -8,6 +9,8 @@ namespace
 
     UCHAR g_OriginalBytes[16] = {};
     SIZE_T g_OriginalLength = 0;
+
+    TRIDENT_PATCH_INSPECTION_RESULT g_InspectionResult = {};
 }
 
 VOID
@@ -15,7 +18,19 @@ TridentHookManager::Initialize()
 {
     g_CandidateAddress = nullptr;
     g_SkipTargetAddress = nullptr;
-    InterlockedExchange(&g_State, TridentHookStateUnavailable);
+
+    RtlZeroMemory(g_OriginalBytes, sizeof(g_OriginalBytes));
+    g_OriginalLength = 0;
+
+    RtlZeroMemory(
+        &g_InspectionResult,
+        sizeof(g_InspectionResult)
+    );
+
+    InterlockedExchange(
+        &g_State,
+        TridentHookStateUnavailable
+    );
 }
 
 VOID
@@ -24,7 +39,19 @@ TridentHookManager::Reset()
     // No executable memory is modified by the scaffold, so reset is state-only.
     g_CandidateAddress = nullptr;
     g_SkipTargetAddress = nullptr;
-    InterlockedExchange(&g_State, TridentHookStateUnavailable);
+
+    RtlZeroMemory(g_OriginalBytes, sizeof(g_OriginalBytes));
+    g_OriginalLength = 0;
+
+    RtlZeroMemory(
+        &g_InspectionResult,
+        sizeof(g_InspectionResult)
+    );
+
+    InterlockedExchange(
+        &g_State,
+        TridentHookStateUnavailable
+    );
 }
 
 NTSTATUS
@@ -96,13 +123,30 @@ TridentHookManager::Prepare()
         return STATUS_INVALID_ADDRESS;
     }
 
+    const NTSTATUS status =
+        TridentPatchTargetInspector::Inspect(
+            g_CandidateAddress,
+            &g_InspectionResult
+        );
+
+    if (!NT_SUCCESS(status))
+    {
+        RtlZeroMemory(
+            &g_InspectionResult,
+            sizeof(g_InspectionResult)
+        );
+
+        return status;
+    }
+
     RtlCopyMemory(
         g_OriginalBytes,
-        g_CandidateAddress,
+        g_InspectionResult.OriginalBytes,
         sizeof(g_OriginalBytes)
     );
 
-    g_OriginalLength = sizeof(g_OriginalBytes);
+    g_OriginalLength =
+        g_InspectionResult.InspectedLength;
 
     return STATUS_SUCCESS;
 }
