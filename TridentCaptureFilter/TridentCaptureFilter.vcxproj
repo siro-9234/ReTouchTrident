@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="12.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|x64">
@@ -98,23 +98,32 @@
       <SpecifyDriverVerDirectiveDate>false</SpecifyDriverVerDirectiveDate>
     </Inf>
     <Link>
-      <AdditionalDependencies>wdmsec.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>wdmsec.lib;Aux_Klib.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <DriverSign>
       <FileDigestAlgorithm>sha256</FileDigestAlgorithm>
     </DriverSign>
+    <Link>
+      <AdditionalDependencies>Aux_Klib.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
     <DriverSign>
       <FileDigestAlgorithm>sha256</FileDigestAlgorithm>
     </DriverSign>
+    <Link>
+      <AdditionalDependencies>Aux_Klib.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
     <DriverSign>
       <FileDigestAlgorithm>sha256</FileDigestAlgorithm>
     </DriverSign>
+    <Link>
+      <AdditionalDependencies>Aux_Klib.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <Inf Include="TridentCaptureFilter.inf" />
@@ -127,6 +136,10 @@
     <ClCompile Include="Device.cpp" />
     <ClCompile Include="DriverEntry.cpp" />
     <ClCompile Include="GlobalContext.cpp" />
+    <ClCompile Include="HookManager.cpp" />
+    <ClCompile Include="PatternScanner.cpp" />
+    <ClCompile Include="PEImage.cpp" />
+    <ClCompile Include="Win32kManager.cpp" />
     <ClCompile Include="Queue.cpp" />
     <ClCompile Include="ReTouchClient.cpp" />
     <ClCompile Include="ReTouchClient.WorkItem.cpp">
@@ -138,6 +151,11 @@
     <ClInclude Include="Device.h" />
     <ClInclude Include="DeviceContext.h" />
     <ClInclude Include="GlobalContext.h" />
+    <ClInclude Include="HookManager.h" />
+    <ClInclude Include="PatternScanner.h" />
+    <ClInclude Include="PEImage.h" />
+    <ClInclude Include="TridentLog.h" />
+    <ClInclude Include="Win32kManager.h" />
     <ClInclude Include="Queue.h" />
     <ClInclude Include="ReTouchClient.h" />
     <ClInclude Include="ReTouchClient.Internal.h" />

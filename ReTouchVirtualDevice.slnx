@@ -11,6 +11,9 @@
   <Project Path="ReTouchCursorProbe/ReTouchCursorProbe.vcxproj" Id="655f067d-cfea-4ac3-8ed6-19a758d78b36">
     <Platform Project="x64" />
   </Project>
+  <Project Path="ReTouchCursorSuppressionProbe/ReTouchCursorSuppressionProbe.vcxproj" Id="281a0218-d0f1-49e5-8818-5fb9e31172b7">
+    <Platform Project="x64" />
+  </Project>
   <Project Path="ReTouchPointerProbe/ReTouchPointerProbe.vcxproj" Id="19c565d7-3c3e-4c45-95a8-4af47170a90b">
     <Platform Project="x64" />
   </Project>
