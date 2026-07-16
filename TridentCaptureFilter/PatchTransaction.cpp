@@ -26,30 +26,36 @@ TridentPatchTransaction::Prepare(
     _In_ SIZE_T Length
 )
 {
-    if (Transaction == nullptr ||
-        TargetAddress == nullptr ||
+    if (Transaction == nullptr)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    //
+    // A failed retry must never preserve an older prepared state.
+    //
+    Initialize(
+        Transaction
+    );
+
+    if (TargetAddress == nullptr ||
         OriginalBytes == nullptr)
     {
         return STATUS_INVALID_PARAMETER;
     }
 
+    if (Length == 0)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
 
-    if (Length == 0 ||
-        Length > TRIDENT_PATCH_MAX_BYTES)
+    if (Length > TRIDENT_PATCH_MAX_BYTES)
     {
         return STATUS_BUFFER_TOO_SMALL;
     }
 
-
-    RtlZeroMemory(
-        Transaction,
-        sizeof(TRIDENT_PATCH_TRANSACTION)
-    );
-
-
     Transaction->TargetAddress =
         TargetAddress;
-
 
     RtlCopyMemory(
         Transaction->OriginalBytes,
@@ -57,19 +63,14 @@ TridentPatchTransaction::Prepare(
         Length
     );
 
-
     Transaction->Length =
         Length;
 
-
     Transaction->Prepared = TRUE;
-
     Transaction->Applied = FALSE;
-
 
     return STATUS_SUCCESS;
 }
-
 
 VOID
 TridentPatchTransaction::Reset(

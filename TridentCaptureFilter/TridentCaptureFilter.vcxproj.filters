@@ -63,6 +63,12 @@
     <ClCompile Include="PatchTransaction.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="TransactionValidator.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="EarlyExitPlan.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Device.h">
@@ -105,6 +111,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="PatchTransaction.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="TransactionValidator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="EarlyExitPlan.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

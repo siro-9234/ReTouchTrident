@@ -10,3 +10,9 @@ NTSTATUS
 TridentCreateControlDevice(
     _In_ WDFDRIVER Driver
 );
+
+extern "C"
+NTSTATUS
+TridentInitializeControlDeviceLifecycle(
+    _In_ WDFDRIVER Driver
+);

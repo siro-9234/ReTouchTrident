@@ -198,6 +198,66 @@ namespace
         return STATUS_NOT_FOUND;
     }
 
+    NTSTATUS LocateUniqueSkipTarget(
+        _In_reads_bytes_(SearchLength) const UCHAR* Function,
+        _In_ SIZE_T SearchLength,
+        _Outptr_ const UCHAR** SkipTarget
+    )
+    {
+        if (Function == nullptr ||
+            SkipTarget == nullptr)
+        {
+            return STATUS_INVALID_PARAMETER;
+        }
+
+        *SkipTarget = nullptr;
+
+        if (SearchLength < sizeof(kSkipTargetBytes))
+        {
+            return STATUS_NOT_FOUND;
+        }
+
+        const UCHAR* uniqueMatch = nullptr;
+        ULONG matchCount = 0;
+
+        const SIZE_T lastOffset =
+            SearchLength - sizeof(kSkipTargetBytes);
+
+        for (SIZE_T offset = 0;
+            offset <= lastOffset;
+            ++offset)
+        {
+            const UCHAR* current =
+                Function + offset;
+
+            if (RtlCompareMemory(
+                current,
+                kSkipTargetBytes,
+                sizeof(kSkipTargetBytes)
+            ) != sizeof(kSkipTargetBytes))
+            {
+                continue;
+            }
+
+            uniqueMatch = current;
+            ++matchCount;
+
+            if (matchCount > 1)
+            {
+                *SkipTarget = nullptr;
+                return STATUS_OBJECT_NAME_COLLISION;
+            }
+        }
+
+        if (uniqueMatch == nullptr)
+        {
+            return STATUS_NOT_FOUND;
+        }
+
+        *SkipTarget = uniqueMatch;
+        return STATUS_SUCCESS;
+    }
+
     BOOLEAN ValidateCandidateLayout(
         _In_reads_bytes_(AvailableBytes) const UCHAR* Function,
         _In_ SIZE_T AvailableBytes
@@ -248,9 +308,12 @@ namespace
         _Outptr_ PVOID* SkipTargetAddress
     )
     {
-        if (ModuleBase == nullptr || ModuleSize == 0 ||
-            TextBase == nullptr || TextSize == nullptr ||
-            FunctionAddress == nullptr || CandidateAddress == nullptr ||
+        if (ModuleBase == nullptr ||
+            ModuleSize == 0 ||
+            TextBase == nullptr ||
+            TextSize == nullptr ||
+            FunctionAddress == nullptr ||
+            CandidateAddress == nullptr ||
             SkipTargetAddress == nullptr)
         {
             return STATUS_INVALID_PARAMETER;
@@ -262,10 +325,14 @@ namespace
         *CandidateAddress = nullptr;
         *SkipTargetAddress = nullptr;
 
-        const auto imageBase = static_cast<const UCHAR*>(ModuleBase);
+        const auto imageBase =
+            static_cast<const UCHAR*>(ModuleBase);
 
         NTSTATUS status =
-            TridentPEImage::ValidateImage(imageBase, ModuleSize);
+            TridentPEImage::ValidateImage(
+                imageBase,
+                ModuleSize
+            );
 
         if (!NT_SUCCESS(status))
         {
@@ -279,12 +346,13 @@ namespace
 
         TRIDENT_PE_SECTION_VIEW text = {};
 
-        status = TridentPEImage::GetSection(
-            imageBase,
-            ModuleSize,
-            kTextName,
-            &text
-        );
+        status =
+            TridentPEImage::GetSection(
+                imageBase,
+                ModuleSize,
+                kTextName,
+                &text
+            );
 
         if (!NT_SUCCESS(status))
         {
@@ -305,12 +373,15 @@ namespace
         }
 
         const UCHAR* validatedMatch = nullptr;
+        const UCHAR* validatedSkipTarget = nullptr;
         ULONG validatedMatchCount = 0;
 
         const SIZE_T lastOffset =
             text.Size - sizeof(kFunctionPattern);
 
-        for (SIZE_T offset = 0; offset <= lastOffset; ++offset)
+        for (SIZE_T offset = 0;
+            offset <= lastOffset;
+            ++offset)
         {
             const UCHAR* current =
                 text.Base + offset;
@@ -335,7 +406,44 @@ namespace
                 continue;
             }
 
+            //
+            // Search only within the currently validated function span.
+            //
+            const SIZE_T skipSearchLength =
+                availableBytes < kMinimumFunctionSpan
+                ? availableBytes
+                : kMinimumFunctionSpan;
+
+            const UCHAR* discoveredSkipTarget = nullptr;
+
+            status =
+                LocateUniqueSkipTarget(
+                    current,
+                    skipSearchLength,
+                    &discoveredSkipTarget
+                );
+
+            if (!NT_SUCCESS(status))
+            {
+                continue;
+            }
+
+            //
+            // Phase 4.1 dual validation:
+            //
+            // The signature-based result must agree with the already
+            // validated Windows 11 25H2 layout offset.
+            //
+            const UCHAR* expectedSkipTarget =
+                current + kSkipTargetOffset;
+
+            if (discoveredSkipTarget != expectedSkipTarget)
+            {
+                continue;
+            }
+
             validatedMatch = current;
+            validatedSkipTarget = discoveredSkipTarget;
             ++validatedMatchCount;
 
             if (validatedMatchCount > 1)
@@ -345,6 +453,7 @@ namespace
         }
 
         if (validatedMatch == nullptr ||
+            validatedSkipTarget == nullptr ||
             validatedMatchCount == 0)
         {
             return STATUS_NOT_FOUND;
@@ -361,11 +470,11 @@ namespace
 
         *CandidateAddress =
             const_cast<UCHAR*>(
-                validatedMatch + kSuppressionPointOffset);
+                validatedMatch + kSuppressionPointOffset
+                );
 
         *SkipTargetAddress =
-            const_cast<UCHAR*>(
-                validatedMatch + kSkipTargetOffset);
+            const_cast<UCHAR*>(validatedSkipTarget);
 
         return STATUS_SUCCESS;
     }
